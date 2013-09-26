@@ -31,3 +31,24 @@ def length(v):
 def vecmul(a, s):
     return[a[0]*s, a[1]*s, a[2]*s]
 
+""" Get angle between 2 vectors"""
+def vecangle(x,y):
+    """
+    # Help with debugging
+    v1 = [102,-1,50]
+    v2 = [24,12,53]
+    """
+    x_len = length(x)
+    y_len = length(y)
+    if x_len == 0 or y_len == 0:
+        print ("Invalid 0 vector.")
+        return
+    angle = math.acos(vecdot(x,y)/(x_len*y_len))
+    """
+    # Help with debugging
+    angle = angle/math.pi*180
+    print(angle)
+    """
+    return angle
+    
+

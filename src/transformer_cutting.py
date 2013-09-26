@@ -9,30 +9,6 @@ import math
 import vector_helper as vector
 import arithmetic_helper as arith
 
-""" Get angle between 2 vectors in 3d in radians """
-def get_angle(v1, v2):
-    """
-    # Help with debugging
-    v1 = [102,-1,50]
-    v2 = [24,12,53]
-    """
-    if len(v1) != 3 or len(v2) != 3:
-        print ("Vector inputs are not in 3D.")
-        return
-    v1_len = vector.length(v1)
-    v2_len = vector.length(v2)
-    if v1_len == 0 or v2_len == 0:
-        print ("Invalid 0 vector.")
-        return
-    angle = math.acos(vector.vecdot(v1,v2)/(v1_len*v2_len))
-    """
-    # Help with debugging
-    angle = angle/math.pi*180
-    print(angle)
-    """
-    return angle
-
-
 """
     Get boundary loop of object
     Outputs indexes of vertices and edges in list passed in
@@ -162,23 +138,75 @@ def perform_leastsquare_fit(x,y):
     n = len(x)
     
     # Gradient of best-fit line
-    m = (sum_xy - sum_x*sum_y/n)/(sum_x_squared-sum_x*sum_x/n)
-    # Y-intercept of best-fit line 
-    c = sum_y/n - m*sum_x/n
-    # Estimated variance of best-fit line
-    v = get_variance_leastsquare_fit(x,y,[m,c])
-    
-    return [m,c,v]
+    denom = sum_x_squared-sum_x*sum_x/n
+    if denom != 0:
+        m = (sum_xy - sum_x*sum_y/n)/denom
+        # Y-intercept of best-fit line 
+        c = sum_y/n - m*sum_x/n
+        # Estimated variance of best-fit line
+        v = get_variance_leastsquare_fit(x,y,[m,c])
+        return [m,c,v]
+    else:
+        m = "INF"
+        # When the line has infinite gradient, c = x-intercept
+        c = sum_x/n
+        v = get_variance_leastsquare_fit(x,y,[m,c])
+        return [m,c,v]
 
 """ Get variance of least square fit solution """
 def get_variance_leastsquare_fit(x,y,bestfit_line):
     squared_residual = []
-    for i in range(len(x)):
-        squared_residual.append(math.pow(y[i]-bestfit_line[0]*x[i]-bestfit_line[1], 2))
+    if bestfit_line[0]!="INF":
+        for i in range(len(x)):
+            squared_residual.append(math.pow(y[i]-bestfit_line[0]*x[i]-bestfit_line[1], 2))
+    else:
+        for i in range(len(x)):
+            squared_residual.append(math.pow(x[i]-bestfit_line[1], 2))
         
-    return arith.summation(squared_residual)/(len(x)-2)
+    return arith.summation(squared_residual)/(len(x))
     
-
+def get_cut_line(x_in,y_in,start_index,end_index):
+    x = []
+    y = []
+    for i in range(start_index, end_index+1):
+        x.append(x_in[i])
+        y.append(y_in[i])
+    return perform_leastsquare_fit(x,y)
+        
+def find_cut_lines(cutting_stripe_2D):
+    limit_variance = 0.000001
+    
+    curr_index = 0
+    end_index = len(cutting_stripe_2D)-1
+    x = []
+    y = []
+    for i in cutting_stripe_2D:
+        x.append(i[0])
+        y.append(i[1])
+    
+    cut_lines = []
+    prev_line = None
+    last_succeeded = False
+    while True:
+        if end_index == len(cutting_stripe_2D):
+            cut_lines.append(prev_line)
+            break
+        
+        line = get_cut_line(x,y,curr_index,end_index)
+        if line[2] > limit_variance:
+            if last_succeeded :
+                last_succeeded = False
+                cut_lines.append(prev_line)
+                curr_index = end_index-1
+                end_index = len(cutting_stripe_2D)-1
+            end_index = math.floor((end_index+curr_index)/2)
+        else:
+            end_index += 1
+            last_succeeded = True
+            prev_line = line
+    
+    return cut_lines
+        
 def transformer_testmain():
     """Get boundary vertices and edges of selected portion of model"""
     """
@@ -211,82 +239,6 @@ def transformer_testmain():
     print(len(cut_edges))
     """
     
-    """
-    #vertices of bounding box bounding_vertices
-    bv = []
-    for i in obj.bound_box:
-        bv.append(i)
-        
-    #draw a +x plane of bounding box
-    px_verts = [bv[7],bv[6],bv[5],bv[4]]
-    px_faces = [(0,1,2,3)]
-    px_plane_mesh = bpy.data.meshes.new("Plane")
-    px_plane_obj = bpy.data.objects.new("positive_x", px_plane_mesh)
-    px_plane_obj.location = obj.location
-    px_plane_obj.scale = obj.scale*1.1
-    px_plane_obj.rotation_euler = obj.rotation_euler
-    bpy.context.scene.objects.link(px_plane_obj)
-    px_plane_mesh.from_pydata(px_verts, [], px_faces)
-    px_plane_mesh.update(calc_edges=True)
-    
-    #draw a -x plane of bounding box
-    nx_verts = [bv[0],bv[1],bv[2],bv[3]]
-    nx_faces = [(0,1,2,3)]
-    nx_plane_mesh = bpy.data.meshes.new("Plane")
-    nx_plane_obj = bpy.data.objects.new("negative_x", nx_plane_mesh)
-    nx_plane_obj.location = obj.location
-    nx_plane_obj.scale = obj.scale*1.1
-    nx_plane_obj.rotation_euler = obj.rotation_euler
-    bpy.context.scene.objects.link(nx_plane_obj)
-    nx_plane_mesh.from_pydata(nx_verts, [], nx_faces)
-    nx_plane_mesh.update(calc_edges=True)
-    
-    #draw a -y plane of bounding box
-    ny_verts = [bv[1],bv[0],bv[4],bv[5]]
-    ny_faces = [(0,1,2,3)]
-    ny_plane_mesh = bpy.data.meshes.new("Plane")
-    ny_plane_obj = bpy.data.objects.new("negative_y", ny_plane_mesh)
-    ny_plane_obj.location = obj.location
-    ny_plane_obj.scale = obj.scale*1.1
-    ny_plane_obj.rotation_euler = obj.rotation_euler
-    bpy.context.scene.objects.link(ny_plane_obj)
-    ny_plane_mesh.from_pydata(ny_verts, [], ny_faces)
-    ny_plane_mesh.update(calc_edges=True)
-    #draw a +y plane of bounding box
-    py_verts = [bv[3],bv[2],bv[6],bv[7]]
-    py_faces = [(0,1,2,3)]
-    py_plane_mesh = bpy.data.meshes.new("Plane")
-    py_plane_obj = bpy.data.objects.new("positive_y", py_plane_mesh)
-    py_plane_obj.location = obj.location
-    py_plane_obj.scale = obj.scale*1.1
-    py_plane_obj.rotation_euler = obj.rotation_euler
-    bpy.context.scene.objects.link(py_plane_obj)
-    py_plane_mesh.from_pydata(py_verts, [], py_faces)
-    py_plane_mesh.update(calc_edges=True)
-    #draw a -z plane of bounding box
-    nz_verts = [bv[7],bv[4],bv[0],bv[3]]
-    nz_faces = [(0,1,2,3)]
-    nz_plane_mesh = bpy.data.meshes.new("Plane")
-    nz_plane_obj = bpy.data.objects.new("negative_z", nz_plane_mesh)
-    nz_plane_obj.location = obj.location
-    nz_plane_obj.scale = obj.scale*1.1
-    nz_plane_obj.rotation_euler = obj.rotation_euler
-    bpy.context.scene.objects.link(nz_plane_obj)
-    nz_plane_mesh.from_pydata(nz_verts, [], nz_faces)
-    nz_plane_mesh.update(calc_edges=True)
-    #draw a +z plane of bounding box
-    pz_verts = [bv[5],bv[6],bv[2],bv[1]]
-    pz_faces = [(0,1,2,3)]
-    pz_plane_mesh = bpy.data.meshes.new("Plane")
-    pz_plane_obj = bpy.data.objects.new("positive_z", pz_plane_mesh)
-    pz_plane_obj.location = obj.location
-    pz_plane_obj.scale = obj.scale*1.1
-    pz_plane_obj.rotation_euler = obj.rotation_euler
-    bpy.context.scene.objects.link(pz_plane_obj)
-    pz_plane_mesh.from_pydata(pz_verts, [], pz_faces)
-    pz_plane_mesh.update(calc_edges=True)
-    """
-    
     angle_threshold = math.pi/4
     plane_normal = [1,0,0]
     
@@ -296,7 +248,7 @@ def transformer_testmain():
         for j in cut_vertices:
             if j not in potential_cut_vertices:
                 if j.index in i.vertices:
-                    if (get_angle(plane_normal,i.normal)) < angle_threshold:
+                    if (vector.vecangle(plane_normal,i.normal)) < angle_threshold:
                         potential_cut_vertices.append(j)
     
     """
@@ -307,40 +259,17 @@ def transformer_testmain():
     print(vertex_stripes)
     
     cutting_stripe = get_valid_vertex_stripe(vertex_stripes)
+    # Extract the coordinates we are interested in according to cut plane, y z for now
+    cutting_stripe_2D = []
+    for i in cutting_stripe:
+        cutting_stripe_2D.append([i.co[1],i.co[2]])
     
+    cut_lines = find_cut_lines(cutting_stripe_2D)
+        
     print("***************END***************")
     
-                
-    
-    # Show selected vertices/change selection
-    """
-    obj = bpy.context.active_object.data
-    mesh = bmesh.from_edit_mesh(obj)
-    
-    selected_vertices = [i for i in mesh.verts if i.select]
-    selected_edges = [i for i in mesh.edges if i.select]
-    selected_faces = [i for i in mesh.faces if i.select]
-    unselected_edges = [i for i in mesh.edges if not i.select]
-    cut_vertices = []
-    
-    for i in selected_faces:
-        i.select_set(False)
-    for i in selected_edges:
-        i.select_set(False)
-    for i in selected_vertices:
-        i.select_set(False)
-        for j in unselected_edges:
-            if i in j.verts:
-                i.select_set(True)
-                cut_vertices.append(i)
-                break
-    print(cut_vertices)
-    print(len(cut_vertices))
-    
-    mesh.select_flush(True)
-    
-    bmesh.update_edit_mesh(obj, True)
-    """
+    return cut_lines
+   
     
     """
     obj = bpy.context.active_object

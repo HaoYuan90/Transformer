@@ -164,7 +164,8 @@ def get_variance_leastsquare_fit(x,y,bestfit_line):
             squared_residual.append(math.pow(x[i]-bestfit_line[1], 2))
         
     return arith.summation(squared_residual)/(len(x))
-    
+   
+""" Find one cut line from starting index onwards, exponential backoff is used here """ 
 def get_cut_line(x_in,y_in,start_index,end_index):
     x = []
     y = []
@@ -206,7 +207,77 @@ def find_cut_lines(cutting_stripe_2D):
             prev_line = line
     
     return cut_lines
+    
+""" 
+    Get point of intersection of 2 lines
+    Lines are in format of [gradient, y-intercept, variance]
+    or [INF, x-intercept, variance, if line is vertical]
+    returned point is in the format of [x,y]
+"""
+def get_line_intersection(line1, line2): 
+    # Both lines are vertical 
+    if line1[0]=="INF" and line2[0]=="INF":
+        return None
+    # Lines are parallel
+    elif math.fabs(line1[0]-line2[0]) <= 0.0001:
+        return None
+    elif line1[0]=="INF":
+        x = line1[1]
+        y = x*line2[0]+line2[1]
+        return [x,y]
+    elif line2[0]=="INF":
+        x = line2[1]
+        y = x*line1[0]+line1[1]
+        return [x,y]
+    # General case
+    else:
+        x = (line2[1]-line1[1])/(line1[0]-line2[0])
+        y = x*line1[0]+line1[1]
+        return [x,y]
+
+def get_best_fringe_vertex(cut_line, x_bounds, y_bounds, ref_pt):
+    candidates = []
+    if cut_line[0] == "INF":
+        candidates.append([cut_line[1],y_bounds[0]])
+        candidates.append([cut_line[1],y_bounds[1]])
+    elif math.fabs(cut_line[0]) <= 0.000001:
+        candidates.append([x_bounds[0],cut_line[1]])
+        candidates.append([x_bounds[1],cut_line[1]])
+    else:
+        min_x_pt = [x_bounds[0],cut_line[0]*x_bounds[0]+cut_line[1]]
+        candidates.append(min_x_pt)
+        max_x_pt = [x_bounds[1],cut_line[0]*x_bounds[1]+cut_line[1]]
+        candidates.append(max_x_pt)
+        min_y_pt = [(y_bounds[0]-cut_line[1])/cut_line[0],y_bounds[0]]
+        candidates.append(min_y_pt)
+        max_y_pt = [(y_bounds[1]-cut_line[1])/cut_line[0],y_bounds[1]]
+        candidates.append(max_y_pt)
         
+    min_dist_squared = math.pow(candidates[0][0]-ref_pt[0], 2)+math.pow(candidates[0][1]-ref_pt[1], 2)
+    best_point = candidates[0]
+    for i in candidates:
+        dist_squared = math.pow(i[0]-ref_pt[0], 2)+math.pow(i[1]-ref_pt[1], 2)
+        if dist_squared < min_dist_squared:
+            min_dist_squared = dist_squared
+            best_point = i
+            
+    return best_point
+        
+        
+def get_cut_vertices(cut_lines,x_bounds,y_bounds,original_start,original_end):
+    cut_vertices = []
+    
+    cut_vertices.append(get_best_fringe_vertex(cut_lines[0],x_bounds,y_bounds,original_start))
+    
+    if len(cut_lines)-2 >= 0:
+        for i in range(0,len(cut_lines)-1):
+            cut_vertices.append(get_line_intersection(cut_lines[i],cut_lines[i+1]))
+    
+    cut_vertices.append(get_best_fringe_vertex(cut_lines[-1],x_bounds,y_bounds,original_end))
+        
+    return cut_vertices
+    
+
 def transformer_testmain():
     """Get boundary vertices and edges of selected portion of model"""
     """
@@ -214,6 +285,12 @@ def transformer_testmain():
     """
     #get vertices in boundary loop
     obj = bpy.context.active_object
+    
+    #get bound_box of object
+    bound_box_vertices = []
+    for i in obj.bound_box:
+        bound_box_vertices.append(i)
+        
     cut_vertices_indexes = []
     cut_edges_indexes = []
     select_boundary_loop(obj,cut_vertices_indexes,cut_edges_indexes)
@@ -265,90 +342,97 @@ def transformer_testmain():
         cutting_stripe_2D.append([i.co[1],i.co[2]])
     
     cut_lines = find_cut_lines(cutting_stripe_2D)
-        
-    print("***************END***************")
     
-    return cut_lines
-   
+    print(cut_lines)
     
-    """
-    obj = bpy.context.active_object
-
-    bv = []
-    for i in obj.bound_box:
-        bv.append(i)
+    # +x and -x side of bound box is used here
+    boundbox_px_verts = [bound_box_vertices[7],bound_box_vertices[6],bound_box_vertices[5],bound_box_vertices[4]]
+    boundbox_nx_verts = [bound_box_vertices[0],bound_box_vertices[1],bound_box_vertices[2],bound_box_vertices[3]]
+    x_min = boundbox_px_verts[0][1]
+    x_max = boundbox_px_verts[0][1]
+    y_min = boundbox_px_verts[0][2]
+    y_max = boundbox_px_verts[0][2]
+    for i in boundbox_px_verts:
+        if i[1] > x_max:
+            x_max = i[1]
+        if i[1] < x_min:
+            x_min = i[1]
+        if i[2] > y_max:
+            y_max = i[2]
+        if i[2] < y_min:
+            y_min = i[2]
+    x_offset = (x_max - x_min)*0.1
+    y_offset = (y_max - y_min)*0.1
+    x_max = x_max + x_offset
+    x_min = x_min - x_offset
+    y_max = y_max + y_offset
+    y_min = y_min - y_offset
+    
+    processed_cut_vertices = get_cut_vertices(cut_lines,[x_min,x_max],[y_min,y_max],cutting_stripe_2D[0],cutting_stripe_2D[-1])
+    print (processed_cut_vertices)
+    # 4 vertices of first plane, this plane will be extruded later
+    plane_offset = (boundbox_px_verts[0][0]-boundbox_nx_verts[0][0])*0.1
+    vert_1 = [boundbox_px_verts[0][0]+plane_offset, processed_cut_vertices[0][0],processed_cut_vertices[0][1]]
+    vert_2 = [boundbox_px_verts[0][0]+plane_offset, processed_cut_vertices[1][0],processed_cut_vertices[1][1]]
+    vert_3 = [boundbox_nx_verts[0][0]-plane_offset, processed_cut_vertices[0][0],processed_cut_vertices[0][1]]
+    vert_4 = [boundbox_nx_verts[0][0]-plane_offset, processed_cut_vertices[1][0],processed_cut_vertices[1][1]]
+    # Transformation to the cutting plane to be applied later
+    obj_location = obj.location
+    obj_scale = obj.scale
+    obj_rotation_euler = obj.rotation_euler
         
-    #draw a +x plane of bounding box
-    px_verts = [bv[7],bv[6],bv[5],bv[4]]
-    px_faces = [(0,1,2,3)]
+    # Create cutting plane
+    px_verts = [vert_1,vert_2,vert_3,vert_4]
+    px_faces = [(0,1,3,2)]
     px_plane_mesh = bpy.data.meshes.new("Plane")
-    px_plane_obj = bpy.data.objects.new("positive_x", px_plane_mesh)
-    px_plane_obj.location = obj.location
-    px_plane_obj.scale = obj.scale*1.1
-    px_plane_obj.rotation_euler = obj.rotation_euler
+    px_plane_obj = bpy.data.objects.new("Cutting_plane", px_plane_mesh)
     bpy.context.scene.objects.link(px_plane_obj)
     px_plane_mesh.from_pydata(px_verts, [], px_faces)
     px_plane_mesh.update(calc_edges=True)
     
+    # Select cutting plane
     obj.select = False
-    
-    plane = bpy.data.objects["positive_x"]  
-    bpy.context.scene.objects.active = plane
-    
-    plane.select = True
+    cutting_plane = bpy.data.objects["Cutting_plane"]  
+    bpy.context.scene.objects.active = cutting_plane
+    cutting_plane.select = True
+    bpy.ops.object.mode_set(mode = 'EDIT')
     bpy.ops.object.mode_set(mode = 'EDIT')
     
-    mesh = bmesh.from_edit_mesh(plane.data)
+    mesh = bmesh.from_edit_mesh(cutting_plane.data)
     
+    # De-select all vertices, edges and faces
     for i in mesh.verts:
         i.select_set(False)
     for i in mesh.edges:
         i.select_set(False)
     for i in mesh.faces:
-        i.select_set(False)
-    
-    mesh.verts[0].select_set(True)
-    mesh.verts[1].select_set(True)
-    
-    for i in mesh.edges:
-        if mesh.verts[0] in i.verts and mesh.verts[1] in i.verts:
-            i.select_set(True)
-    
-    mesh.select_flush(True)
-    
-    bmesh.update_edit_mesh(plane.data, True)
-    
-    bpy.ops.mesh.extrude_region_move(MESH_OT_extrude_region={"mirror":False},TRANSFORM_OT_translate={"value":[1,1,1]})
-"""
-    
-"""
-    obj = bpy.context.active_object.data
-    bpy.ops.object.mode_set(mode = 'EDIT')
-    
-    mesh = bmesh.from_edit_mesh(obj)
-    
-    for i in mesh.verts:
-        i.select_set(False)
-    for i in mesh.edges:
-        i.select_set(False)
-    for i in mesh.faces:
-        i.select_set(False)
-    
+        i.select_set(False)    
+        
+    # Get the edge to be extruded
     edges = []
     for i in mesh.edges:
-        if mesh.verts[0] in i.verts and mesh.verts[1] in i.verts:
-            edges.append(i)
+        if math.fabs(i.verts[0].co[1]-vert_2[1])<=0.00001 and math.fabs(i.verts[0].co[2]-vert_2[2])<=0.00001:
+            if math.fabs(i.verts[1].co[1]-vert_2[1])<=0.00001 and math.fabs(i.verts[1].co[2]-vert_2[2])<=0.00001:
+                edges.append(i)            
     
-    newEdge = None  
-    ret = bmesh.ops.extrude_edge_only(mesh,edges=edges)
-    
-    extruded_vertices = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
-    
-    bmesh.ops.translate(mesh,verts=extruded_vertices,vec=(0.0, 0.0, 1.0))
+    if len(processed_cut_vertices) > 2:
+        for i in range(1,len(processed_cut_vertices)-1):
+            extrude_dir = [0,processed_cut_vertices[i+1][0]-processed_cut_vertices[i][0],processed_cut_vertices[i+1][1]-processed_cut_vertices[i][1]]
+            # Perform extrude operation
+            ret = bmesh.ops.extrude_edge_only(mesh,edges=edges)
+            extruded_vertices = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
+            extruded_edges = [e for e in ret["geom"] if isinstance(e, bmesh.types.BMEdge)]
+            
+            bmesh.ops.translate(mesh,verts=extruded_vertices,vec=extrude_dir)
+            
+            edges = extruded_edges
     
     mesh.select_flush(True)
-    bmesh.update_edit_mesh(obj, True)
+    bmesh.update_edit_mesh(cutting_plane.data, True)
     
-    #bpy.ops.mesh.extrude_region_move(MESH_OT_extrude_region={"mirror":False},TRANSFORM_OT_translate={"value":(1,1,1)})
-"""
-        
+    # Set transformation
+    cutting_plane.location = obj_location
+    cutting_plane.scale = obj_scale
+    cutting_plane.rotation_euler = obj_rotation_euler
+    
+    print("***************END***************")

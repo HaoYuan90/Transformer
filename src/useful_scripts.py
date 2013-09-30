@@ -103,3 +103,87 @@
     
     bmesh.update_edit_mesh(obj, True)
 """
+
+
+# Extrude related
+"""
+  obj = bpy.context.active_object
+
+  bv = []
+  for i in obj.bound_box:
+      bv.append(i)
+      
+  #draw a +x plane of bounding box
+  px_verts = [bv[7],bv[6],bv[5],bv[4]]
+  px_faces = [(0,1,2,3)]
+  px_plane_mesh = bpy.data.meshes.new("Plane")
+  px_plane_obj = bpy.data.objects.new("positive_x", px_plane_mesh)
+  px_plane_obj.location = obj.location
+  px_plane_obj.scale = obj.scale*1.1
+  px_plane_obj.rotation_euler = obj.rotation_euler
+  bpy.context.scene.objects.link(px_plane_obj)
+  px_plane_mesh.from_pydata(px_verts, [], px_faces)
+  px_plane_mesh.update(calc_edges=True)
+  
+  obj.select = False
+  
+  plane = bpy.data.objects["positive_x"]  
+  bpy.context.scene.objects.active = plane
+  
+  plane.select = True
+  bpy.ops.object.mode_set(mode = 'EDIT')
+  
+  mesh = bmesh.from_edit_mesh(plane.data)
+  
+  for i in mesh.verts:
+      i.select_set(False)
+  for i in mesh.edges:
+      i.select_set(False)
+  for i in mesh.faces:
+      i.select_set(False)
+  
+  mesh.verts[0].select_set(True)
+  mesh.verts[1].select_set(True)
+  
+  for i in mesh.edges:
+      if mesh.verts[0] in i.verts and mesh.verts[1] in i.verts:
+          i.select_set(True)
+  
+  mesh.select_flush(True)
+  
+  bmesh.update_edit_mesh(plane.data, True)
+  
+  bpy.ops.mesh.extrude_region_move(MESH_OT_extrude_region={"mirror":False},TRANSFORM_OT_translate={"value":[1,1,1]})
+"""
+  
+"""
+  obj = bpy.context.active_object.data
+  bpy.ops.object.mode_set(mode = 'EDIT')
+  
+  mesh = bmesh.from_edit_mesh(obj)
+  
+  for i in mesh.verts:
+      i.select_set(False)
+  for i in mesh.edges:
+      i.select_set(False)
+  for i in mesh.faces:
+      i.select_set(False)
+  
+  edges = []
+  for i in mesh.edges:
+      if mesh.verts[0] in i.verts and mesh.verts[1] in i.verts:
+          edges.append(i)
+  
+  newEdge = None  
+  ret = bmesh.ops.extrude_edge_only(mesh,edges=edges)
+  
+  extruded_vertices = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
+  
+  bmesh.ops.translate(mesh,verts=extruded_vertices,vec=(0.0, 0.0, 1.0))
+  
+  mesh.select_flush(True)
+  bmesh.update_edit_mesh(obj, True)
+  
+  #bpy.ops.mesh.extrude_region_move(MESH_OT_extrude_region={"mirror":False},TRANSFORM_OT_translate={"value":(1,1,1)})
+"""
+      

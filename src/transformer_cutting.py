@@ -175,7 +175,7 @@ def get_cut_line(x_in,y_in,start_index,end_index):
     return perform_leastsquare_fit(x,y)
         
 def find_cut_lines(cutting_stripe_2D):
-    limit_variance = 0.000001
+    limit_variance = 0.5
     
     curr_index = 0
     end_index = len(cutting_stripe_2D)-1
@@ -436,3 +436,47 @@ def transformer_testmain():
     cutting_plane.rotation_euler = obj_rotation_euler
     
     print("***************END***************")
+    print("***************BOOLEAN OPERATOR***************")
+    
+    # Make a copy of the object
+    obj_name = obj.name
+    copy_name = obj_name+'_copy'
+    copy = bpy.data.objects.new(copy_name, bpy.data.meshes.new(copy_name))
+    copy.data = obj.data.copy()
+    copy.location = obj_location
+    copy.scale = obj_scale
+    copy.rotation_euler = obj_rotation_euler
+    bpy.context.scene.objects.link(copy)
+    
+    # Set obj to be current active object
+    cutting_plane.select = False
+    obj.select = True
+    bpy.context.scene.objects.active = obj
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.object.editmode_toggle()
+    
+    # Apply intersect to obtain one part of the cut
+    bpy.ops.object.modifier_add(type='BOOLEAN')
+    intersect_mod = obj.modifiers['Boolean']
+    intersect_mod.operation = 'INTERSECT'
+    intersect_mod.object = cutting_plane
+    bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
+    
+    # Set copy to be current active object
+    obj.select = False
+    copy.select = True
+    bpy.context.scene.objects.active = copy
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.object.editmode_toggle()
+    
+    # Apply difference to obtain the other part of the cut
+    bpy.ops.object.modifier_add(type='BOOLEAN')
+    difference_mod = copy.modifiers['Boolean']
+    difference_mod.operation = 'DIFFERENCE'
+    difference_mod.object = cutting_plane
+    bpy.ops.object.modifier_apply(apply_as='DATA', modifier=difference_mod.name)
+    
+    print("***************END***************")
+    

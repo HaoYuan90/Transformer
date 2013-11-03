@@ -20,24 +20,26 @@ def select_boundary_loop(obj, cut_vertices, cut_edges):
     selected_vertices = [i for i in mesh.verts if i.select]
     selected_edges = [i for i in mesh.edges if i.select]
     selected_faces = [i for i in mesh.faces if i.select]
-    unselected_edges = [i for i in mesh.edges if not i.select]
+    unselected_faces = [i for i in mesh.faces if not i.select]
     
     for i in selected_faces:
-        i.select_set(False)
-    for i in selected_edges:
         i.select_set(False)
         
     for i in selected_vertices:
         i.select_set(False)
-        for j in unselected_edges:
+        for j in unselected_faces:
             if i in j.verts:
                 i.select_set(True)
                 cut_vertices.append(i.index)
                 break
+            
     for i in selected_edges:
-        if i.verts[0].index in cut_vertices and i.verts[1].index in cut_vertices:
-            i.select_set(True)
-            cut_edges.append(i.index)
+        i.select_set(False)
+        for j in unselected_faces:
+            if i in j.edges:
+                i.select_set(True)
+                cut_edges.append(i.index)
+                break
     
     """
     print(cut_vertices)
@@ -175,7 +177,7 @@ def get_cut_line(x_in,y_in,start_index,end_index):
     return perform_leastsquare_fit(x,y)
         
 def find_cut_lines(cutting_stripe_2D):
-    limit_variance = 0.5
+    limit_variance = 0.001
     
     curr_index = 0
     end_index = len(cutting_stripe_2D)-1

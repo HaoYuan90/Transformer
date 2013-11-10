@@ -15,6 +15,7 @@ Global constants
 """
 # Floating point error tolerance
 fp_tolerance = 0.0001
+normal_tolerance = 0.02
 tier_1_divs = 20
 tier_2_divs = 20
 tier_3_divs = 5
@@ -247,25 +248,32 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
         # Calculate area of cut surface
         area = 0
         for face in cuboid.data.polygons:
-            if math.fabs(face.normal[1]-1)<= fp_tolerance or math.fabs(face.normal[1]+1) <= fp_tolerance:
-                is_cut_surface = False
+            if math.fabs(face.normal[1]-1)<= normal_tolerance:
+                average_y = 0;
                 for vert in face.vertices:
-                    if math.fabs(cuboid.data.vertices[vert].co[1]-y_near) <= fp_tolerance or math.fabs(cuboid.data.vertices[vert].co[1]-y_far) <= fp_tolerance:
-                        is_cut_surface = True
-                if is_cut_surface:
-                    area = area+face.area
+                    average_y += cuboid.data.vertices[vert].co[1]
+                average_y = average_y/len(face.vertices)
+                area = area+face.area*(average_y-y_near)/y_interval
+            elif math.fabs(face.normal[1]+1) <= normal_tolerance:
+                average_y = 0;
+                for vert in face.vertices:
+                    average_y += cuboid.data.vertices[vert].co[1]
+                average_y = average_y/len(face.vertices)
+                area = area+face.area*(y_far-average_y)/y_interval
                     
         cutsurface_areas.append(area)
     
     volume_ratios = get_volume_ratios(cutsurface_areas)
-    intermediate_cleanup()
     
     #print("tier 1 cutsurface_areas")
     #print(cutsurface_areas)
     #print("tier 1 volume_ratios")
     #print(volume_ratios)
     
-    #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    
+    intermediate_cleanup()
+    """
     
     print("Tier 1 matching")
     print("expected volume ratio ", req_volume_ratio)
@@ -301,6 +309,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
                 
     print()
+    """
 
 def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     # Get bound_box of object

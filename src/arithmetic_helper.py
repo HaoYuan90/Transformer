@@ -24,3 +24,6 @@ def mult_sum(x,y):
     for i in range(len(x)):
         xy.append(x[i]*y[i])
     return summation(xy)
+
+def percentage_discrepancy(est,real):
+    return math.fabs(real-est)/real

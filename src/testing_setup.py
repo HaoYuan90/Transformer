@@ -15,7 +15,8 @@ import arithmetic_helper
 exec(compile(open("C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py").read(), "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py", 'exec'))
 
 exec(compile(open("C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py").read(), "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py", 'exec'))
-autocut_main(0.6)
+autocut_main(0.6, (1,2,1))
+
 """
 
     

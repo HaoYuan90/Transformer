@@ -19,4 +19,12 @@ autocut_main(0.6, (1,2,1))
 
 """
 
+"""
+for demo 
+autocut_main(0.6, (1,4,1))
+autocut_main(0.4, (2,2,1))
+autocut_main(0.3, (10,4,3))
+
+"""
+
     

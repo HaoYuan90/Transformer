@@ -15,8 +15,8 @@ Global constants
 """
 # Floating point error tolerance
 fp_tolerance = 0.0001
-normal_tolerance = 0.02
-tier_1_divs = 20
+normal_tolerance = 0.03
+tier_1_divs = 20 #20
 tier_2_divs = 20
 tier_3_divs = 5
 allowed_pd_volume = 0.1
@@ -270,10 +270,9 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
     #print("tier 1 volume_ratios")
     #print(volume_ratios)
     
-    analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
     
     intermediate_cleanup()
-    """
     
     print("Tier 1 matching")
     print("expected volume ratio ", req_volume_ratio)
@@ -291,6 +290,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
             if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
                 name = str.format("accepted_cut_{}", accepted_cut_id)
                 accepted_cut_id += 1
+                potential_cut_id += 1
                 tier_1_cut = create_cuboid(generate_cuboid_verts_y(x_max,x_min,z_max,z_min,y_far,y_near),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
             else:
@@ -305,11 +305,12 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
             if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
                 name = str.format("accepted_cut_{}", accepted_cut_id)
                 accepted_cut_id += 1
+                potential_cut_id += 1
                 tier_1_cut = create_cuboid(generate_cuboid_verts_y(x_max,x_min,z_max,z_min,y_far,y_near),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
                 
     print()
-    """
+    
 
 def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     # Get bound_box of object

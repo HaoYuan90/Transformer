@@ -17,8 +17,8 @@ Global constants
 fp_tolerance = 0.0001
 normal_tolerance = 0.03
 tier_1_divs = 20 #20
-tier_2_divs = 20
-tier_3_divs = 5
+tier_2_divs = 10
+tier_3_divs = 10
 allowed_pd_volume = 0.1
 allowed_pd_aspect = 0.2
 """
@@ -38,16 +38,16 @@ def copy_object(orig_obj, to_obj_name):
 """
 Return the 8 vertices of a cuboid constructed from  constrains of 3 dimensions
 """
-def generate_cuboid_verts_y(x_max,x_min,z_max,z_min,y_far,y_near):
+def generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min):
     verts = []
-    verts.append((x_min,y_far,z_max))
-    verts.append((x_max,y_far,z_max))
-    verts.append((x_min,y_far,z_min))
-    verts.append((x_max,y_far,z_min))
-    verts.append((x_min,y_near,z_max))
-    verts.append((x_max,y_near,z_max))
-    verts.append((x_min,y_near,z_min))
-    verts.append((x_max,y_near,z_min))
+    verts.append((x_min,y_max,z_max))
+    verts.append((x_max,y_max,z_max))
+    verts.append((x_min,y_max,z_min))
+    verts.append((x_max,y_max,z_min))
+    verts.append((x_min,y_min,z_max))
+    verts.append((x_max,y_min,z_max))
+    verts.append((x_min,y_min,z_min))
+    verts.append((x_max,y_min,z_min))
     return verts
 
 """
@@ -107,11 +107,18 @@ Verify if a cut can be accepted based on its volume ratio and aspect ratio
 Return BOOLEAN
 """
 def verify_cut(req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, dim_z):
-    volume_ratio_satisfied = False
-    aspect_ratio_satisfied = False
+    
+    # Matching volume 
+    print("...matching...")
+    print("volume ", estimated_volume)
 
-    if arith.percentage_discrepancy(estimated_volume, req_volume_ratio) <= allowed_pd_volume:
-        volume_ratio_satisfied = True
+    if not arith.percentage_discrepancy(estimated_volume, req_volume_ratio) <= allowed_pd_volume:
+        print("rejected")
+        print()
+        return False
+    
+    # Matching aspect ratio    
+    aspect_ratio_satisfied = False
     
     configure_1 = []
     configure_1.append(dim_x/dim_y)
@@ -123,8 +130,7 @@ def verify_cut(req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, di
     configure_3.append(dim_x/dim_z)
     configure_3.append(dim_y/dim_z)
     
-    print("...matching...")
-    print("volume ", estimated_volume)
+    print("aspect ratio")
     print(configure_1)
     print(configure_2)
     print(configure_3)
@@ -147,12 +153,14 @@ def verify_cut(req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, di
     and arith.percentage_discrepancy(configure_3[0], req_aspects[1]) <= allowed_pd_aspect):
         aspect_ratio_satisfied = True
     
-    if volume_ratio_satisfied and aspect_ratio_satisfied:
-        print("accepted")
-        return True
-    else:
+    if not aspect_ratio_satisfied:
         print("rejected")
+        print()
         return False
+    
+    print("accepted")
+    print()
+    return True
 
 
 """
@@ -239,7 +247,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
         this_y = this_y + y_interval
         y_far = this_y
         name = str.format("division_{}", i+1)
-        cuboid = create_cuboid(generate_cuboid_verts_y(x_max_box,x_min_box,z_max_box,z_min_box,y_far,y_near),name)
+        cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
         
         perform_boolean_operation(obj,cuboid,"INTERSECT")
        
@@ -249,13 +257,13 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
         area = 0
         for face in cuboid.data.polygons:
             if math.fabs(face.normal[1]-1)<= normal_tolerance:
-                average_y = 0;
+                average_y = 0
                 for vert in face.vertices:
                     average_y += cuboid.data.vertices[vert].co[1]
                 average_y = average_y/len(face.vertices)
                 area = area+face.area*(average_y-y_near)/y_interval
             elif math.fabs(face.normal[1]+1) <= normal_tolerance:
-                average_y = 0;
+                average_y = 0
                 for vert in face.vertices:
                     average_y += cuboid.data.vertices[vert].co[1]
                 average_y = average_y/len(face.vertices)
@@ -291,14 +299,15 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
                 name = str.format("accepted_cut_{}", accepted_cut_id)
                 accepted_cut_id += 1
                 potential_cut_id += 1
-                tier_1_cut = create_cuboid(generate_cuboid_verts_y(x_max,x_min,z_max,z_min,y_far,y_near),name)
+                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
             else:
                 name = str.format("potential_cut_{}", potential_cut_id)
                 potential_cut_id += 1
-                tier_1_cut = create_cuboid(generate_cuboid_verts_y(x_max_box,x_min_box,z_max_box,z_min_box,y_far,y_near),name)
+                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
-                tier_2_matching(potential_cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                #tier_2_matching(potential_cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                tier_3_matching(potential_cut_id, potential_cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 
         elif arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             y_far = y_near + (i+1)*y_interval
@@ -306,7 +315,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
                 name = str.format("accepted_cut_{}", accepted_cut_id)
                 accepted_cut_id += 1
                 potential_cut_id += 1
-                tier_1_cut = create_cuboid(generate_cuboid_verts_y(x_max,x_min,z_max,z_min,y_far,y_near),name)
+                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
                 
     print()
@@ -341,7 +350,7 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         if i[2] < z_min:
             z_min = i[2]
     
-    # First division is along y-axis
+    # 2nd division is along x-axis
     x_interval = (x_max-x_min)/tier_2_divs
     y_temp = (y_max-y_min)/tier_2_divs
     z_temp = (z_max-z_min)/tier_2_divs
@@ -359,7 +368,7 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         this_x = this_x + x_interval
         x_far = this_x
         name = str.format("division_{}", i+1)
-        cuboid = create_cuboid(generate_cuboid_verts_y(x_far,x_near,z_max_box,z_min_box,y_max_box,y_min_box),name)
+        cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box,),name)
         
         perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT")
        
@@ -368,7 +377,7 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         # Calculate area of cut surface
         area = 0
         for face in cuboid.data.polygons:
-            if math.fabs(face.normal[0]-1)<= fp_tolerance or math.fabs(face.normal[0]+1) <= fp_tolerance:
+            if math.fabs(face.normal[0]-1)<= normal_tolerance or math.fabs(face.normal[0]+1) <= normal_tolerance:
                 is_cut_surface = False
                 for vert in face.vertices:
                     if math.fabs(cuboid.data.vertices[vert].co[0]-x_near) <= fp_tolerance or math.fabs(cuboid.data.vertices[vert].co[0]-x_far) <= fp_tolerance:
@@ -405,11 +414,107 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
             if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,(x_max-x_min)-(x_far-x_near),y_max-y_min,z_max-z_min):
                 name = str.format("accepted_cut_{}_{}", tier_1_id, accepted_cut_id)
                 tier_1_copy = copy_object(tier_1_cut,name)
-                tier_2_assist = create_cuboid(generate_cuboid_verts_y(x_far,x_near,z_max_box,z_min_box,y_max_box,y_min_box),"tier_2_assist")
+                tier_2_assist = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),"tier_2_assist")
                 perform_boolean_operation(tier_2_assist,tier_1_copy,"DIFFERENCE")
                 intermediate_cleanup()
 
+
+def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspects):
+    # Get bound_box of object
+    boundbox_verts = []
+    for i in tier_2_cut.bound_box:
+        boundbox_verts.append(i)
         
+    # plug in PCA here if needed, perform pca, rotate object and save the rotation
+    
+    # Get bound coordinates of the object
+    x_min = boundbox_verts[0][0]
+    x_max = boundbox_verts[0][0]
+    y_min = boundbox_verts[0][1]
+    y_max = boundbox_verts[0][1]
+    z_min = boundbox_verts[0][2]
+    z_max = boundbox_verts[0][2]
+    for i in boundbox_verts:
+        if i[0] > x_max:
+            x_max = i[0]
+        if i[0] < x_min:
+            x_min = i[0]
+        if i[1] > y_max:
+            y_max = i[1]
+        if i[1] < y_min:
+            y_min = i[1]
+        if i[2] > z_max:
+            z_max = i[2]
+        if i[2] < z_min:
+            z_min = i[2]
+    
+    # 3rd division is along z-axis
+    z_interval = (z_max-z_min)/tier_3_divs
+    x_temp = (x_max-x_min)/tier_3_divs
+    y_temp = (y_max-y_min)/tier_3_divs
+    x_max_box = x_max + x_temp
+    x_min_box = x_min - x_temp
+    y_max_box = y_max + y_temp
+    y_min_box = y_min - y_temp
+
+    this_z = z_min
+    tier_2_cut.select = False
+    divisions = []
+    cutsurface_areas = []
+    for i in range(0,tier_3_divs):  
+        z_near = this_z
+        this_z = this_z + z_interval
+        z_far = this_z
+        name = str.format("division_{}", i+1)
+        cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
+        
+        perform_boolean_operation(tier_2_cut,cuboid,"INTERSECT")
+       
+        divisions.append(cuboid)
+        
+        # Calculate area of cut surface
+        area = 0
+        for face in cuboid.data.polygons:
+            if math.fabs(face.normal[2]-1)<= normal_tolerance or math.fabs(face.normal[2]+1) <= normal_tolerance:
+                is_cut_surface = False
+                for vert in face.vertices:
+                    if math.fabs(cuboid.data.vertices[vert].co[2]-z_near) <= fp_tolerance or math.fabs(cuboid.data.vertices[vert].co[2]-z_far) <= fp_tolerance:
+                        is_cut_surface = True
+                if is_cut_surface:
+                    area = area+face.area
+                    
+        cutsurface_areas.append(area)
+        
+    volume_ratios = get_volume_ratios(cutsurface_areas)
+    intermediate_cleanup()
+    
+    #print("tier 3 volume_ratios")
+    #print(volume_ratios)
+    #print("tier 3 cutsurface_areas")
+    #print(cutsurface_areas)
+    
+    #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    
+    print("Tier 3 matching")
+    print("expected volume ratio ", req_volume_ratio)
+    print("expected aspects ", req_aspects)
+    
+    # Find acceptable cut
+    z_near = z_min
+    z_far = z_near
+    accumulated_volume_ratio = 0
+    accepted_cut_id = 1
+    for i in range(0,tier_3_divs):  
+        accumulated_volume_ratio += volume_ratios[i]     
+        if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
+            z_far = z_near + (i+1)*z_interval
+            if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_max-y_min,z_far-z_near):
+                name = str.format("accepted_cut_{}_{}_{}", tier_1_id, tier_2_id, accepted_cut_id)
+                accepted_cut_id += 1
+                tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
+                perform_boolean_operation(tier_2_cut,tier_3_cut,"INTERSECT")
+                
+    print()
         
             
             

@@ -16,11 +16,16 @@ Global constants
 # Floating point error tolerance
 fp_tolerance = 0.0001
 normal_tolerance = 0.03
+# Number of divisions 
 tier_1_divs = 20 #20
 tier_2_divs = 10
 tier_3_divs = 10
+# How accurate the accepted cuts are
 allowed_pd_volume = 0.1
 allowed_pd_aspect = 0.2
+
+# Debug messages control
+DEBUG_MATCHING = True
 """
 Copy a blender obj, copy operator is buggy
 Takes in original_object, name of copied object
@@ -103,18 +108,31 @@ def get_volume_ratios(cut_surface_areas):
     return volume_ratios
 
 """
+Pad the print message in verify cut with appropriate number of '*'
+"""
+def pad_msg(div_id):
+    if div_id.count('_') == 0:
+        return "****************"
+    elif div_id.count('_') == 1:
+        return "********"
+    else:
+        return ""
+        
+"""
 Verify if a cut can be accepted based on its volume ratio and aspect ratio
 Return BOOLEAN
 """
-def verify_cut(req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, dim_z):
+def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, dim_z):
     
     # Matching volume 
-    print("...matching...")
-    print("volume ", estimated_volume)
+    if DEBUG_MATCHING:
+        print("{} matching {}".format(pad_msg(div_id), div_id))
+        print("{} volume req/act : {} / {}".format(pad_msg(div_id), req_volume_ratio, estimated_volume))
 
     if not arith.percentage_discrepancy(estimated_volume, req_volume_ratio) <= allowed_pd_volume:
-        print("rejected")
-        print()
+        if DEBUG_MATCHING:
+            print("{} rejected".format(pad_msg(div_id)))
+            print()
         return False
     
     # Matching aspect ratio    
@@ -130,10 +148,9 @@ def verify_cut(req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, di
     configure_3.append(dim_x/dim_z)
     configure_3.append(dim_y/dim_z)
     
-    print("aspect ratio")
-    print(configure_1)
-    print(configure_2)
-    print(configure_3)
+    if DEBUG_MATCHING:
+        print("{} aspect ratio req : {}".format(pad_msg(div_id), req_aspects))
+        print("{} aspect ratio 1/2/3 : {} / {} / {}".format(pad_msg(div_id), configure_1, configure_2, configure_3))
     
     if (arith.percentage_discrepancy(configure_1[0], req_aspects[0]) <= allowed_pd_aspect \
     and arith.percentage_discrepancy(configure_1[1], req_aspects[1]) <= allowed_pd_aspect) \
@@ -154,12 +171,14 @@ def verify_cut(req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, di
         aspect_ratio_satisfied = True
     
     if not aspect_ratio_satisfied:
-        print("rejected")
-        print()
+        if DEBUG_MATCHING:
+            print("{} rejected".format(pad_msg(div_id)))
+            print()
         return False
     
-    print("accepted")
-    print()
+    if DEBUG_MATCHING:
+        print("{} accepted".format(pad_msg(div_id)))
+        print()
     return True
 
 
@@ -282,43 +301,41 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
     
     intermediate_cleanup()
     
-    print("Tier 1 matching")
-    print("expected volume ratio ", req_volume_ratio)
-    print("expected aspects ", req_aspects)
+    if DEBUG_MATCHING:
+        print("**************** Tier 1 matching starts")
+        print()
     # Find a cut with volume just bigger than required volume
     y_near = y_min
     y_far = y_near
     accumulated_volume_ratio = 0
-    potential_cut_id = 1
-    accepted_cut_id = 1
+    cut_id = 1
     for i in range(0,tier_1_divs):  
+        div_id = str.format("{}", cut_id)
         accumulated_volume_ratio += volume_ratios[i]
         if accumulated_volume_ratio > req_volume_ratio:
             y_far = y_near + (i+1)*y_interval
-            if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
-                name = str.format("accepted_cut_{}", accepted_cut_id)
-                accepted_cut_id += 1
-                potential_cut_id += 1
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
+                name = str.format("accepted_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
             else:
-                name = str.format("potential_cut_{}", potential_cut_id)
-                potential_cut_id += 1
+                name = str.format("potential_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
                 #tier_2_matching(potential_cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
-                tier_3_matching(potential_cut_id, potential_cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                tier_3_matching(cut_id, cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 
         elif arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             y_far = y_near + (i+1)*y_interval
-            if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
-                name = str.format("accepted_cut_{}", accepted_cut_id)
-                accepted_cut_id += 1
-                potential_cut_id += 1
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
+                name = str.format("accepted_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
-                
-    print()
+        cut_id += 1
+           
+    if DEBUG_MATCHING:     
+        print("**************** Tier 1 matching ends")
+        print()
     
 
 def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
@@ -397,27 +414,33 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     
     #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
     
-    print("Tier 2 matching")
-    print("expected volume ratio ", req_volume_ratio)
-    print("expected aspects ", req_aspects)
+    if DEBUG_MATCHING:
+        print("******** Tier 2 matching of div {}".format(tier_1_id))
+        print()
+        
     # Find a cut with volume just bigger than required volume (symmetric case)
     x_near = x_min
     x_far = x_near
     accumulated_volume_ratio = 0
-    accepted_cut_id = 1
+    cut_id = 1
     for i in range(0,math.floor(tier_2_divs/2)-1):  
         accumulated_volume_ratio += volume_ratios[i]
         accumulated_volume_ratio += volume_ratios[tier_2_divs-1-i]
+        div_id = str.format("{}_{}", tier_1_id, cut_id)
         if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             x_near = x_min + (i+1)*x_interval
             x_far = x_max - (i+1)*x_interval
-            if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,(x_max-x_min)-(x_far-x_near),y_max-y_min,z_max-z_min):
-                name = str.format("accepted_cut_{}_{}", tier_1_id, accepted_cut_id)
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,(x_max-x_min)-(x_far-x_near),y_max-y_min,z_max-z_min):
+                name = str.format("accepted_cut_{}_{}", tier_1_id, cut_id)
                 tier_1_copy = copy_object(tier_1_cut,name)
                 tier_2_assist = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),"tier_2_assist")
                 perform_boolean_operation(tier_2_assist,tier_1_copy,"DIFFERENCE")
                 intermediate_cleanup()
-
+        cut_id += 1
+                
+    if DEBUG_MATCHING:     
+        print("******** Tier 2 matching of div {} ends".format(tier_1_id))
+        print()
 
 def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspects):
     # Get bound_box of object
@@ -495,27 +518,30 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspe
     
     #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
     
-    print("Tier 3 matching")
-    print("expected volume ratio ", req_volume_ratio)
-    print("expected aspects ", req_aspects)
+    if DEBUG_MATCHING:
+        print("Tier 3 matching of div {}_{}".format(tier_1_id, tier_2_id))
+        print()
     
     # Find acceptable cut
     z_near = z_min
     z_far = z_near
     accumulated_volume_ratio = 0
-    accepted_cut_id = 1
+    cut_id = 1
     for i in range(0,tier_3_divs):  
-        accumulated_volume_ratio += volume_ratios[i]     
+        accumulated_volume_ratio += volume_ratios[i]   
+        div_id = str.format("{}_{}_{}",tier_1_id,tier_2_id,cut_id)  
         if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             z_far = z_near + (i+1)*z_interval
-            if verify_cut(req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_max-y_min,z_far-z_near):
-                name = str.format("accepted_cut_{}_{}_{}", tier_1_id, tier_2_id, accepted_cut_id)
-                accepted_cut_id += 1
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_max-y_min,z_far-z_near):
+                name = str.format("accepted_cut_{}_{}_{}", tier_1_id, tier_2_id, cut_id)
                 tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
                 perform_boolean_operation(tier_2_cut,tier_3_cut,"INTERSECT")
+        cut_id += 1
                 
-    print()
-        
+    if DEBUG_MATCHING:     
+        print("Tier 3 matching of div {}_{} ends".format(tier_1_id, tier_2_id))
+        print()
+
             
             
             

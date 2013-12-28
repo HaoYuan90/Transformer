@@ -25,7 +25,8 @@ allowed_pd_volume = 0.1
 allowed_pd_aspect = 0.2
 
 # Debug messages control
-DEBUG_MATCHING = True
+DEBUG_MATCHING = False
+
 """
 Copy a blender obj, copy operator is buggy
 Takes in original_object, name of copied object
@@ -95,7 +96,51 @@ def perform_boolean_operation(obj_from, obj_to, op_type):
     bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
     
     # Deselect this obj_to
+    bpy.ops.object.mode_set(mode = 'OBJECT')
     obj_to.select = False
+    
+    
+"""
+Get area of cut surfaces for volume approximation
+"""
+def get_cut_surfaces_area(vertices,polygons,dim_string,near_plane,far_plane,interval):
+    # Determine dimension
+    dim = 0
+    if dim_string == "x":
+        dim = 0
+    elif dim_string == "y":
+        dim = 1
+    elif dim_string == "z":
+        dim = 2
+    else:
+        return 0
+    
+    """
+    In here, average plane is checked against a threshold to take into account of
+    hollowed object, the hollowed face, if its normal is just right, should not be
+    counted to make the estimated volume even larger than it already is
+    """
+    area = 0
+    far_threshold = far_plane - interval/10
+    near_threshold = near_plane + interval/10
+    for face in polygons:
+        # Facing towards positive axis
+        if math.fabs(face.normal[dim]-1)<= normal_tolerance:
+            average_plane = 0
+            for vert in face.vertices:
+                average_plane += vertices[vert].co[dim]
+            average_plane = average_plane/len(face.vertices)
+            if average_plane >= far_threshold:
+                area = area+face.area*(average_plane-near_plane)/interval
+        # Facing towards negative axis
+        elif math.fabs(face.normal[dim]+1) <= normal_tolerance:
+            average_plane = 0
+            for vert in face.vertices:
+                average_plane += vertices[vert].co[dim]
+            average_plane = average_plane/len(face.vertices)
+            if average_plane <= near_threshold:
+                area = area+face.area*(far_plane-average_plane)/interval
+    return area
 
 """
 Get estimated volume ratios based on surface area ratios
@@ -271,24 +316,8 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
         perform_boolean_operation(obj,cuboid,"INTERSECT")
        
         divisions.append(cuboid)
-        
-        # Calculate area of cut surface
-        area = 0
-        for face in cuboid.data.polygons:
-            if math.fabs(face.normal[1]-1)<= normal_tolerance:
-                average_y = 0
-                for vert in face.vertices:
-                    average_y += cuboid.data.vertices[vert].co[1]
-                average_y = average_y/len(face.vertices)
-                area = area+face.area*(average_y-y_near)/y_interval
-            elif math.fabs(face.normal[1]+1) <= normal_tolerance:
-                average_y = 0
-                for vert in face.vertices:
-                    average_y += cuboid.data.vertices[vert].co[1]
-                average_y = average_y/len(face.vertices)
-                area = area+face.area*(y_far-average_y)/y_interval
                     
-        cutsurface_areas.append(area)
+        cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"y",y_near,y_far,y_interval))
     
     volume_ratios = get_volume_ratios(cutsurface_areas)
     
@@ -297,7 +326,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
     #print("tier 1 volume_ratios")
     #print(volume_ratios)
     
-    #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
     
     intermediate_cleanup()
     
@@ -322,8 +351,8 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
                 name = str.format("potential_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
-                #tier_2_matching(potential_cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
-                tier_3_matching(cut_id, cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                tier_2_matching(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                #tier_3_matching(cut_id, cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 
         elif arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             y_far = y_near + (i+1)*y_interval
@@ -391,28 +420,18 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
        
         divisions.append(cuboid)
         
-        # Calculate area of cut surface
-        area = 0
-        for face in cuboid.data.polygons:
-            if math.fabs(face.normal[0]-1)<= normal_tolerance or math.fabs(face.normal[0]+1) <= normal_tolerance:
-                is_cut_surface = False
-                for vert in face.vertices:
-                    if math.fabs(cuboid.data.vertices[vert].co[0]-x_near) <= fp_tolerance or math.fabs(cuboid.data.vertices[vert].co[0]-x_far) <= fp_tolerance:
-                        is_cut_surface = True
-                if is_cut_surface:
-                    area = area+face.area
-                    
-        cutsurface_areas.append(area)
+        cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
     volume_ratios = get_volume_ratios(cutsurface_areas)
-    intermediate_cleanup()
     
     #print("tier 2 volume_ratios")
     #print(volume_ratios)
     #print("tier 2 cutsurface_areas")
     #print(cutsurface_areas)
     
-    #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(tier_1_cut, divisions, volume_ratios)
+    
+    intermediate_cleanup()
     
     if DEBUG_MATCHING:
         print("******** Tier 2 matching of div {}".format(tier_1_id))
@@ -496,6 +515,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspe
         divisions.append(cuboid)
         
         # Calculate area of cut surface
+        """
         area = 0
         for face in cuboid.data.polygons:
             if math.fabs(face.normal[2]-1)<= normal_tolerance or math.fabs(face.normal[2]+1) <= normal_tolerance:
@@ -505,18 +525,20 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspe
                         is_cut_surface = True
                 if is_cut_surface:
                     area = area+face.area
+                    """
                     
-        cutsurface_areas.append(area)
+        cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"z",z_near,z_far,z_interval))
         
     volume_ratios = get_volume_ratios(cutsurface_areas)
-    intermediate_cleanup()
     
     #print("tier 3 volume_ratios")
     #print(volume_ratios)
     #print("tier 3 cutsurface_areas")
     #print(cutsurface_areas)
     
-    #analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(tier_2_cut, divisions, volume_ratios)
+    
+    intermediate_cleanup()
     
     if DEBUG_MATCHING:
         print("Tier 3 matching of div {}_{}".format(tier_1_id, tier_2_id))

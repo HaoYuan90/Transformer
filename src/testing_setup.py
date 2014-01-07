@@ -20,13 +20,17 @@ autocut_main(0.6, (1,4,1))
 """
 
 """
-for demo 
+for demo on car
 autocut_main(0.6, (1,4,1))
 tier 1 + 3 show case....
 autocut_main(0.6, (40,100,12))
 autocut_main(0.4, (2,2,1))
 autocut_main(0.3, (10,4,3))
-
 """
 
+"""
+for demo on cube
+tier 1 + 2
+autocut_main(0.3, (10,7,5))
+"""
     

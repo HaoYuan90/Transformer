@@ -6,7 +6,7 @@ DEPENDENCY : http://wiki.blender.org/index.php/Extensions:2.6/Py/Scripts/Mesh/Vo
 """
 
 # Debug messages control
-DEBUG_ANALYTICS = True
+DEBUG_ANALYTICS = False
 
 def analyse_volume_approximation(object, divisions, estimated_volume_ratios):
     if DEBUG_ANALYTICS:

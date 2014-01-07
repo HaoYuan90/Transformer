@@ -33,12 +33,16 @@ Takes in original_object, name of copied object
 Return copied object
 """
 def copy_object(orig_obj, to_obj_name):
-    copy = bpy.data.objects.new(to_obj_name, bpy.data.meshes.new(to_obj_name))
+    temp_mesh = bpy.data.meshes.new('SomeNameThatDoesntMatter')
+    copy = bpy.data.objects.new(to_obj_name, temp_mesh)
     copy.data = orig_obj.data.copy()
+    copy.data.name = to_obj_name
     copy.location = orig_obj.location
     copy.scale = orig_obj.scale
     copy.rotation_euler = orig_obj.rotation_euler
     bpy.context.scene.objects.link(copy)
+    
+    bpy.data.meshes.remove(temp_mesh)
     return copy
 
 """
@@ -165,9 +169,10 @@ def pad_msg(div_id):
         
 """
 Verify if a cut can be accepted based on its volume ratio and aspect ratio
+temp_sto is a dictionary containing some values to be written back to the cut
 Return BOOLEAN
 """
-def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, dim_z):
+def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, dim_z, temp_sto):
     
     # Matching volume 
     if DEBUG_MATCHING:
@@ -178,6 +183,7 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, dim_x, d
         if DEBUG_MATCHING:
             print("{} rejected".format(pad_msg(div_id)))
             print()
+        temp_sto['pd'] = -1
         return False
     
     # Matching aspect ratio    
@@ -196,6 +202,16 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, dim_x, d
     if DEBUG_MATCHING:
         print("{} aspect ratio req : {}".format(pad_msg(div_id), req_aspects))
         print("{} aspect ratio 1/2/3 : {} / {} / {}".format(pad_msg(div_id), configure_1, configure_2, configure_3))
+    
+    # The smallest percentage difference possible
+    pds = {arith.percentage_discrepancy(configure_1[0], req_aspects[0]) + arith.percentage_discrepancy(configure_1[1], req_aspects[1]),\
+           arith.percentage_discrepancy(configure_1[1], req_aspects[0]) + arith.percentage_discrepancy(configure_1[0], req_aspects[1]),\
+           arith.percentage_discrepancy(configure_2[0], req_aspects[0]) + arith.percentage_discrepancy(configure_2[1], req_aspects[1]),\
+           arith.percentage_discrepancy(configure_2[1], req_aspects[0]) + arith.percentage_discrepancy(configure_2[0], req_aspects[1]),\
+           arith.percentage_discrepancy(configure_3[0], req_aspects[0]) + arith.percentage_discrepancy(configure_3[1], req_aspects[1]),\
+           arith.percentage_discrepancy(configure_3[1], req_aspects[0]) + arith.percentage_discrepancy(configure_3[0], req_aspects[1])}
+    pd = min(pds)
+    temp_sto['pd'] = pd
     
     if (arith.percentage_discrepancy(configure_1[0], req_aspects[0]) <= allowed_pd_aspect \
     and arith.percentage_discrepancy(configure_1[1], req_aspects[1]) <= allowed_pd_aspect) \
@@ -256,7 +272,46 @@ def intermediate_cleanup():
     for mesh in bpy.data.meshes:
         if "division" in mesh.name or "assist" in mesh.name:
             bpy.data.meshes.remove(mesh)
-
+            
+"""
+Remove all potential cuts, leaving the best
+and flush all associated meshes
+"""
+def tier_end_cleanup():
+    objects = bpy.data.objects
+    first_obj = None
+    for obj in objects:
+        if "potential" in obj.name and obj['pd'] != -1:
+            first_obj = obj
+            break
+        
+    if first_obj == None:
+        return
+    
+    best_cut = first_obj
+    min_pd = first_obj['pd']
+    
+    # Get the best potential cut
+    for obj in objects:
+        if "potential" in obj.name and obj['pd'] != -1:
+            if obj['pd'] < min_pd:
+                min_pd = obj['pd']
+                best_cut = obj
+        
+    # Remove all non-intermediate potential cuts except for the best
+    mesh_to_remove = []
+    for obj in objects:
+        obj.select = False
+        if "potential" in obj.name and obj != best_cut:
+            mesh_to_remove.append(obj.name)
+            obj.select = True
+    bpy.ops.object.delete()
+    for mesh in bpy.data.meshes:
+        if mesh.name in mesh_to_remove:
+            bpy.data.meshes.remove(mesh)
+            
+            
+    
 def autocut_main(req_volume_ratio, req_aspect_ratio):
     req_aspects = []
     req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
@@ -338,28 +393,33 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
     y_far = y_near
     accumulated_volume_ratio = 0
     cut_id = 1
+    temp_sto = {'pd':-1}
     for i in range(0,tier_1_divs):  
         div_id = str.format("{}", cut_id)
         accumulated_volume_ratio += volume_ratios[i]
         if accumulated_volume_ratio > req_volume_ratio:
             y_far = y_near + (i+1)*y_interval
-            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min,temp_sto):
                 name = str.format("accepted_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
+                tier_1_cut['pd'] = temp_sto['pd']
             else:
                 name = str.format("potential_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
+                tier_1_cut['pd'] = temp_sto['pd']
                 tier_2_matching(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 #tier_3_matching(cut_id, cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 
         elif arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             y_far = y_near + (i+1)*y_interval
-            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min):
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min,temp_sto):
                 name = str.format("accepted_cut_{}", cut_id)
                 tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
+                tier_1_cut['pd'] = temp_sto['pd']
+                
         cut_id += 1
            
     if DEBUG_MATCHING:     
@@ -442,6 +502,7 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     x_far = x_near
     accumulated_volume_ratio = 0
     cut_id = 1
+    temp_sto = {'pd':-1}
     for i in range(0,math.floor(tier_2_divs/2)-1):  
         accumulated_volume_ratio += volume_ratios[i]
         accumulated_volume_ratio += volume_ratios[tier_2_divs-1-i]
@@ -449,13 +510,24 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             x_near = x_min + (i+1)*x_interval
             x_far = x_max - (i+1)*x_interval
-            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,(x_max-x_min)-(x_far-x_near),y_max-y_min,z_max-z_min):
-                name = str.format("accepted_cut_{}_{}", tier_1_id, cut_id)
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,(x_max-x_min)-(x_far-x_near),y_max-y_min,z_max-z_min,temp_sto):
+                name = str.format("accepted_cut_{}", div_id)
                 tier_1_copy = copy_object(tier_1_cut,name)
                 tier_2_assist = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),"tier_2_assist")
                 perform_boolean_operation(tier_2_assist,tier_1_copy,"DIFFERENCE")
+                tier_1_copy['pd'] = temp_sto['pd']
                 intermediate_cleanup()
+            else:
+                name = str.format("potential_cut_{}", div_id)
+                tier_1_copy = copy_object(tier_1_cut,name)
+                tier_2_assist = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),"tier_2_assist")
+                perform_boolean_operation(tier_2_assist,tier_1_copy,"DIFFERENCE")
+                tier_1_copy['pd'] = temp_sto['pd']
+                intermediate_cleanup()
+                # Invoke tier 3
         cut_id += 1
+        
+    tier_end_cleanup()
                 
     if DEBUG_MATCHING:     
         print("******** Tier 2 matching of div {} ends".format(tier_1_id))
@@ -513,19 +585,6 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspe
         perform_boolean_operation(tier_2_cut,cuboid,"INTERSECT")
        
         divisions.append(cuboid)
-        
-        # Calculate area of cut surface
-        """
-        area = 0
-        for face in cuboid.data.polygons:
-            if math.fabs(face.normal[2]-1)<= normal_tolerance or math.fabs(face.normal[2]+1) <= normal_tolerance:
-                is_cut_surface = False
-                for vert in face.vertices:
-                    if math.fabs(cuboid.data.vertices[vert].co[2]-z_near) <= fp_tolerance or math.fabs(cuboid.data.vertices[vert].co[2]-z_far) <= fp_tolerance:
-                        is_cut_surface = True
-                if is_cut_surface:
-                    area = area+face.area
-                    """
                     
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"z",z_near,z_far,z_interval))
         

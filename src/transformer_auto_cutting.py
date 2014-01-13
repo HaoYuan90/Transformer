@@ -25,7 +25,7 @@ allowed_pd_volume = 0.1
 allowed_pd_aspect = 0.2
 
 # Debug messages control
-DEBUG_MATCHING = False
+DEBUG_MATCHING = True
 
 """
 Copy a blender obj, copy operator is buggy
@@ -174,6 +174,9 @@ Return BOOLEAN
 """
 def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, dim_x, dim_y, dim_z, temp_sto):
     
+    print(dim_x)
+    print(dim_y)
+    print(dim_z)
     # Matching volume 
     if DEBUG_MATCHING:
         print("{} matching {}".format(pad_msg(div_id), div_id))
@@ -274,11 +277,32 @@ def intermediate_cleanup():
             bpy.data.meshes.remove(mesh)
             
 """
-Remove all potential cuts, leaving the best
-and flush all associated meshes
+Remove all potential cuts if an accepted cut is found or
+remove all potential cuts, leaving the best if no accepted cut is found
+Flush all associated meshes
 """
 def tier_end_cleanup():
     objects = bpy.data.objects
+    
+    # If any accepted cuts are found, remove all potential cuts
+    accepted_cut_found = False
+    for obj in objects:
+        if "accepted" in obj.name:
+            accepted_cut_found = True
+            break
+        
+    if accepted_cut_found:
+        for obj in objects:
+            obj.select = False
+            if "potential" in obj.name:
+                obj.select = True
+        bpy.ops.object.delete()
+        for mesh in bpy.data.meshes:
+            if "potential" in mesh.name:
+                bpy.data.meshes.remove(mesh)
+        return
+    
+    # If no accepted cuts are found, keep the best potential cut
     first_obj = None
     for obj in objects:
         if "potential" in obj.name and obj['pd'] != -1:
@@ -288,11 +312,21 @@ def tier_end_cleanup():
     if first_obj == None:
         return
     
+    if first_obj['pd'] ==None:
+        print("!!!!!!!!!!!!")
+        print(first_obj.name)
+        print("Unexpected error, first object does not have pd")
+        print("!!!!!!!!!!!!")
     best_cut = first_obj
     min_pd = first_obj['pd']
     
     # Get the best potential cut
     for obj in objects:
+        if "potential" in obj.name and obj['pd'] == None:
+            print("!!!!!!!!!!!!")
+            print(obj.name)
+            print("Unexpected error, potential cut does not have pd")
+            print("!!!!!!!!!!!!")
         if "potential" in obj.name and obj['pd'] != -1:
             if obj['pd'] < min_pd:
                 min_pd = obj['pd']
@@ -401,15 +435,16 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
             y_far = y_near + (i+1)*y_interval
             if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_far-y_near,z_max-z_min,temp_sto):
                 name = str.format("accepted_cut_{}", cut_id)
-                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
+                # For cuts with overlapping face, add a offset to the dimension so blender works properly
+                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near-y_interval,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
                 tier_1_cut['pd'] = temp_sto['pd']
             else:
                 name = str.format("potential_cut_{}", cut_id)
-                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
+                tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near-y_interval,z_max_box,z_min_box),name)
                 perform_boolean_operation(obj,tier_1_cut,"INTERSECT")
                 tier_1_cut['pd'] = temp_sto['pd']
-                tier_2_matching(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                tier_2_matching_sym(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 #tier_3_matching(cut_id, cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
                 
         elif arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
@@ -427,7 +462,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
         print()
     
 
-def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
+def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     # Get bound_box of object
     boundbox_verts = []
     for i in tier_1_cut.bound_box:
@@ -494,12 +529,10 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     intermediate_cleanup()
     
     if DEBUG_MATCHING:
-        print("******** Tier 2 matching of div {}".format(tier_1_id))
+        print("******** Tier 2 sym matching of div {}".format(tier_1_id))
         print()
         
     # Find a cut with volume just bigger than required volume (symmetric case)
-    x_near = x_min
-    x_far = x_near
     accumulated_volume_ratio = 0
     cut_id = 1
     temp_sto = {'pd':-1}
@@ -510,7 +543,8 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             x_near = x_min + (i+1)*x_interval
             x_far = x_max - (i+1)*x_interval
-            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,(x_max-x_min)-(x_far-x_near),y_max-y_min,z_max-z_min,temp_sto):
+            x_dim = (x_max-x_min)-(x_far-x_near)
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_dim,y_max-y_min,z_max-z_min,temp_sto):
                 name = str.format("accepted_cut_{}", div_id)
                 tier_1_copy = copy_object(tier_1_cut,name)
                 tier_2_assist = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),"tier_2_assist")
@@ -524,16 +558,142 @@ def tier_2_matching(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
                 perform_boolean_operation(tier_2_assist,tier_1_copy,"DIFFERENCE")
                 tier_1_copy['pd'] = temp_sto['pd']
                 intermediate_cleanup()
-                # Invoke tier 3
+                tier_3_matching(tier_1_id, cut_id, tier_1_copy, req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
+        elif accumulated_volume_ratio >= req_volume_ratio:
+            x_near = x_min + (i+1)*x_interval
+            x_far = x_max - (i+1)*x_interval
+            x_dim = (x_max-x_min)-(x_far-x_near)
+            
+            name = str.format("potential_cut_{}", div_id)
+            tier_1_copy = copy_object(tier_1_cut,name)
+            tier_2_assist = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),"tier_2_assist")
+            perform_boolean_operation(tier_2_assist,tier_1_copy,"DIFFERENCE")
+            tier_1_copy['pd'] = temp_sto['pd']
+            intermediate_cleanup()
+            tier_3_matching(tier_1_id, cut_id, tier_1_copy, req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
         cut_id += 1
         
     tier_end_cleanup()
                 
     if DEBUG_MATCHING:     
-        print("******** Tier 2 matching of div {} ends".format(tier_1_id))
+        print("******** Tier 2 sym matching of div {} ends".format(tier_1_id))
+        print()
+        
+def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
+    # Get bound_box of object
+    boundbox_verts = []
+    for i in tier_1_cut.bound_box:
+        boundbox_verts.append(i)
+        
+    # plug in PCA here if needed, perform pca, rotate object and save the rotation
+    
+    # Get bound coordinates of the object
+    x_min = boundbox_verts[0][0]
+    x_max = boundbox_verts[0][0]
+    y_min = boundbox_verts[0][1]
+    y_max = boundbox_verts[0][1]
+    z_min = boundbox_verts[0][2]
+    z_max = boundbox_verts[0][2]
+    for i in boundbox_verts:
+        if i[0] > x_max:
+            x_max = i[0]
+        if i[0] < x_min:
+            x_min = i[0]
+        if i[1] > y_max:
+            y_max = i[1]
+        if i[1] < y_min:
+            y_min = i[1]
+        if i[2] > z_max:
+            z_max = i[2]
+        if i[2] < z_min:
+            z_min = i[2]
+    
+    # 2nd division is along x-axis
+    x_interval = (x_max-x_min)/tier_2_divs
+    y_temp = (y_max-y_min)/tier_2_divs
+    z_temp = (z_max-z_min)/tier_2_divs
+    y_max_box = y_max + y_temp
+    y_min_box = y_min - y_temp
+    z_max_box = z_max + z_temp
+    z_min_box = z_min - z_temp
+
+    this_x = x_min
+    tier_1_cut.select = False
+    divisions = []
+    cutsurface_areas = []
+    for i in range(0,tier_2_divs):  
+        x_near = this_x
+        this_x = this_x + x_interval
+        x_far = this_x
+        name = str.format("division_{}", i+1)
+        cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box,),name)
+        
+        perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT")
+       
+        divisions.append(cuboid)
+        
+        cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
+        
+    volume_ratios = get_volume_ratios(cutsurface_areas)
+    
+    #print("tier 2 volume_ratios")
+    #print(volume_ratios)
+    #print("tier 2 cutsurface_areas")
+    #print(cutsurface_areas)
+    
+    analysis.analyse_volume_approximation(tier_1_cut, divisions, volume_ratios)
+    
+    intermediate_cleanup()
+    
+    if DEBUG_MATCHING:
+        print("******** Tier 2 asym matching of div {}".format(tier_1_id))
+        print()
+        
+    # Find a cut with volume just bigger than required volume (symmetric case)
+    x_near = x_min
+    x_far = x_near
+    accumulated_volume_ratio = 0
+    cut_id = 1
+    temp_sto = {'pd':-1}
+    for i in range(0,tier_2_divs):  
+        accumulated_volume_ratio += volume_ratios[i]
+        div_id = str.format("{}_{}", tier_1_id, cut_id)
+        if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
+            x_far = x_near + (i+1)*x_interval
+            x_dim = x_far - x_near
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_dim,y_max-y_min,z_max-z_min,temp_sto):
+                name = str.format("accepted_cut_{}", div_id)
+                # For cuts with overlapping face, add a offset to the dimension so blender works properly
+                tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near-x_interval,y_max_box,y_min_box,z_max_box,z_min_box),name)
+                perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT")
+                tier_2_cut['pd'] = temp_sto['pd']
+            else:
+                name = str.format("potential_cut_{}", div_id)
+                # For cuts with overlapping face, add a offset to the dimension so blender works properly
+                tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near-x_interval,y_max_box,y_min_box,z_max_box,z_min_box),name)
+                perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT")
+                tier_2_cut['pd'] = temp_sto['pd']
+                tier_3_matching(tier_1_id, cut_id, tier_2_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
+        elif accumulated_volume_ratio >= req_volume_ratio:
+            x_far = x_near + (i+1)*x_interval
+            x_dim = x_far - x_near
+            
+            name = str.format("potential_cut_{}", div_id)
+            # For cuts with overlapping face, add a offset to the dimension so blender works properly
+            tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near-x_interval,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT")
+            tier_2_cut['pd'] = temp_sto['pd']
+            tier_3_matching(tier_1_id, cut_id, tier_2_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
+            
+        cut_id += 1
+        
+    tier_end_cleanup()
+                
+    if DEBUG_MATCHING:     
+        print("******** Tier 2 asym matching of div {} ends".format(tier_1_id))
         print()
 
-def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspects):
+def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspects, x_dim):
     # Get bound_box of object
     boundbox_verts = []
     for i in tier_2_cut.bound_box:
@@ -608,15 +768,24 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cut, req_volume_ratio, req_aspe
     z_far = z_near
     accumulated_volume_ratio = 0
     cut_id = 1
+    temp_sto = {'pd':-1}
     for i in range(0,tier_3_divs):  
         accumulated_volume_ratio += volume_ratios[i]   
         div_id = str.format("{}_{}_{}",tier_1_id,tier_2_id,cut_id)  
         if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             z_far = z_near + (i+1)*z_interval
-            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_max-x_min,y_max-y_min,z_far-z_near):
+            if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_dim,y_max-y_min,z_far-z_near,temp_sto):
                 name = str.format("accepted_cut_{}_{}_{}", tier_1_id, tier_2_id, cut_id)
-                tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
+                # For cuts with overlapping face, add a offset to the dimension so blender works properly
+                tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near-z_interval),name)
                 perform_boolean_operation(tier_2_cut,tier_3_cut,"INTERSECT")
+                tier_3_cut['pd'] = temp_sto['pd']
+            else:
+                name = str.format("potential_cut_{}_{}_{}", tier_1_id, tier_2_id, cut_id)
+                # For cuts with overlapping face, add a offset to the dimension so blender works properly
+                tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near-z_interval),name)
+                perform_boolean_operation(tier_2_cut,tier_3_cut,"INTERSECT")
+                tier_3_cut['pd'] = temp_sto['pd']
         cut_id += 1
                 
     if DEBUG_MATCHING:     

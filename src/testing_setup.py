@@ -32,5 +32,7 @@ autocut_main(0.3, (10,4,3))
 for demo on cube
 tier 1 + 2
 autocut_main(0.3, (10,7,5))
+tier 3
+autocut_main(0.3, (10,7,3))
 """
     

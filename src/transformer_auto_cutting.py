@@ -20,6 +20,7 @@ normal_tolerance = 0.03
 tier_1_divs = 20 #20
 tier_2_divs = 10
 tier_3_divs = 10
+# Deal with blender's bug with boolean operation, choose appropriate ones 
 tier_1_subdivision_level = 1
 tier_2_subdivision_level = 1
 tier_3_subdivision_level = 1
@@ -89,7 +90,6 @@ def perform_boolean_operation(obj_from, obj_to, op_type, level):
     obj_to.select = True
     bpy.context.scene.objects.active = obj_to
     bpy.ops.object.mode_set(mode = 'EDIT')
-    bpy.ops.object.mode_set(mode = 'EDIT')
     
     bpy.ops.mesh.subdivide(number_cuts = level)
     
@@ -101,6 +101,10 @@ def perform_boolean_operation(obj_from, obj_to, op_type, level):
     intersect_mod.operation = op_type
     intersect_mod.object = obj_from
     bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
+    
+    # Remove doubles
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.mesh.remove_doubles()
     
     # Deselect this obj_to
     bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -299,6 +303,7 @@ def tier_end_cleanup():
     for mesh in bpy.data.meshes:
         if mesh.name in mesh_to_remove:
             bpy.data.meshes.remove(mesh)
+
             
 """
 Remove all potential cuts if an accepted cut is found or
@@ -549,9 +554,7 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
             cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
         perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT",tier_2_subdivision_level)
-       
         divisions.append(cuboid)
-        
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
     volume_ratios = get_volume_ratios(cutsurface_areas)
@@ -573,7 +576,7 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     accumulated_volume_ratio = 0
     cut_id = 1
     temp_sto = {'pd':-1}
-    for i in range(0,math.floor(tier_2_divs/2)-1):  
+    for i in range(0,math.floor((tier_2_divs+1)/2)-1):  
         accumulated_volume_ratio += volume_ratios[i]
         accumulated_volume_ratio += volume_ratios[tier_2_divs-1-i]
         div_id = str.format("{}_{}", tier_1_id, cut_id)
@@ -659,6 +662,8 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     y_min_box = y_min - y_temp
     z_max_box = z_max + z_temp
     z_min_box = z_min - z_temp
+    x_max_box = x_max + x_interval
+    x_min_box = x_min - x_interval
 
     this_x = x_min
     tier_1_cut.select = False
@@ -669,12 +674,16 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         this_x = this_x + x_interval
         x_far = this_x
         name = str.format("division_{}", i+1)
-        cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box,),name)
+        cuboid = None
+        if i == 0:
+            cuboid = create_cuboid(generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
+        elif i == tier_2_divs -1:
+            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+        else:
+            cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT")
-       
+        perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT",tier_2_subdivision_level)
         divisions.append(cuboid)
-        
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
     volume_ratios = get_volume_ratios(cutsurface_areas)
@@ -693,40 +702,41 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         print()
         
     # Find a cut with volume just bigger than required volume (symmetric case)
-    x_near = x_min
-    x_far = x_near
     accumulated_volume_ratio = 0
     cut_id = 1
     temp_sto = {'pd':-1}
-    for i in range(0,tier_2_divs):  
-        accumulated_volume_ratio += volume_ratios[i]
+    for i in reversed(range(1,math.floor((tier_2_divs+1)/2))): 
+        # Odd number of divisions, first volume is the one piece in the center
+        if tier_2_divs%2 == 1 and i == math.floor((tier_2_divs+1)/2)-1:
+            accumulated_volume_ratio += volume_ratios[i]
+        # Otherwise add the 2 pieces in the center
+        else:
+            accumulated_volume_ratio += volume_ratios[i]
+            accumulated_volume_ratio += volume_ratios[tier_2_divs-1-i]
+        
         div_id = str.format("{}_{}", tier_1_id, cut_id)
+        x_near = x_min + i*x_interval
+        x_far = x_max - i*x_interval
+        x_dim = x_far-x_near
+                    
         if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
-            x_far = x_near + (i+1)*x_interval
-            x_dim = x_far - x_near
             if verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,x_dim,y_max-y_min,z_max-z_min,temp_sto):
                 name = str.format("accepted_cut_{}", div_id)
-                # For cuts with overlapping face, add a offset to the dimension so blender works properly
-                tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near-x_interval,y_max_box,y_min_box,z_max_box,z_min_box),name)
-                perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT")
+                tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+                perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT",tier_2_subdivision_level)
                 tier_2_cut['pd'] = temp_sto['pd']
             else:
                 name = str.format("potential_cut_{}", div_id)
-                # For cuts with overlapping face, add a offset to the dimension so blender works properly
-                tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near-x_interval,y_max_box,y_min_box,z_max_box,z_min_box),name)
-                perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT")
+                tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+                perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT",tier_2_subdivision_level)
                 tier_2_cut['pd'] = temp_sto['pd']
-                tier_3_matching(tier_1_id, cut_id, tier_2_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
-        elif accumulated_volume_ratio >= req_volume_ratio:
-            x_far = x_near + (i+1)*x_interval
-            x_dim = x_far - x_near
-            
+                tier_3_matching(tier_1_id, cut_id, [tier_2_cut], req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
+        elif accumulated_volume_ratio > req_volume_ratio:
             name = str.format("potential_cut_{}", div_id)
-            # For cuts with overlapping face, add a offset to the dimension so blender works properly
-            tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near-x_interval,y_max_box,y_min_box,z_max_box,z_min_box),name)
-            perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT")
+            tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT",tier_2_subdivision_level)
             tier_2_cut['pd'] = temp_sto['pd']
-            tier_3_matching(tier_1_id, cut_id, tier_2_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
+            tier_3_matching(tier_1_id, cut_id, [tier_2_cut], req_volume_ratio/accumulated_volume_ratio, req_aspects, x_dim)
             
         cut_id += 1
         
@@ -863,7 +873,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                     tier_3_cut_pos['pd'] = temp_sto['pd']
                     tier_3_cut_neg['pd'] = temp_sto['pd']
                 else:
-                    tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near-z_min_box),name)
+                    tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
                     perform_boolean_operation(tier_2_cuts[0],tier_3_cut,"INTERSECT",tier_3_subdivision_level)
                     tier_3_cut['pd'] = temp_sto['pd']
         cut_id += 1

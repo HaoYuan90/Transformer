@@ -20,6 +20,11 @@ autocut_main(0.3, (10,7,3))
 """
 
 """
+test_obj
+autocut_main(0.3, (1,2,1)) 4,7.3,8.3
+"""
+
+"""
 for demo on car
 autocut_main(0.6, (1,4,1))
 tier 1 + 3 show case....

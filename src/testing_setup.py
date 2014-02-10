@@ -1,6 +1,5 @@
 #script to setup
 """
-
 import sys
 
 mypath = "C:\\Users\\Xiaopewpew\\Desktop\\GithubProjects\\Transformer\\src"
@@ -15,9 +14,20 @@ import arithmetic_helper
 exec(compile(open("C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py").read(), "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py", 'exec'))
 
 exec(compile(open("C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py").read(), "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py", 'exec'))
-autocut_main(0.3, (10,7,3))
+autocut_main(cut_reqs)
 
 """
+
+"""
+picks = [2,2]
+cut_reqs = []
+cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
+cut_reqs.append({"volume":0.3,"aspect":(10,7,3)})
+autocut_main(cut_reqs,picks)
+
+
+"""
+
 
 """
 test_obj
@@ -40,4 +50,13 @@ autocut_main(0.3, (10,7,5))
 tier 3
 autocut_main(0.3, (10,7,3))
 """
+
+"""
+demo on test_obj
+first cut
+autocut_main(0.4, (2,2,1))
+2nd cut
+autocut_main(0.6, (1,4,1))
+"""
+
     

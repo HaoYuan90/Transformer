@@ -6,6 +6,7 @@ import bpy
 import bmesh
 
 import math
+import random
 import vector_helper as vector
 import arithmetic_helper as arith
 import analysis_helper as analysis
@@ -27,6 +28,8 @@ tier_3_subdivision_level = 1
 # How accurate the accepted cuts are
 allowed_pd_volume = 0.1
 allowed_pd_aspect = 0.2
+mediocre_pd_cap = 0.8
+bad_pd_cap = 1.5
 
 # Debug messages control
 DEBUG_MATCHING = False
@@ -85,7 +88,7 @@ obj_from is the object parameter in boolean operation
 obj_to is the object which operator is applied to
 level is the level of subdivision
 """
-def perform_boolean_operation(obj_from, obj_to, op_type, level):
+def perform_boolean_intersection(obj_from, obj_to, level):
     # Set obj_to to be current active object
     obj_to.select = True
     bpy.context.scene.objects.active = obj_to
@@ -98,7 +101,36 @@ def perform_boolean_operation(obj_from, obj_to, op_type, level):
     # Apply intersect to obtain the cut
     bpy.ops.object.modifier_add(type='BOOLEAN')
     intersect_mod = obj_to.modifiers['Boolean']
-    intersect_mod.operation = op_type
+    intersect_mod.operation = "INTERSECT"
+    intersect_mod.object = obj_from
+    bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
+    
+    # Remove doubles
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.mesh.remove_doubles()
+    
+    # Deselect this obj_to
+    bpy.ops.object.mode_set(mode = 'OBJECT')
+    obj_to.select = False
+    
+def perform_boolean_difference(obj_from, obj_to, level):
+    # Subdivide obj_from
+    obj_from.select = True
+    bpy.context.scene.objects.active = obj_from
+    bpy.ops.object.mode_set(mode = 'EDIT')
+    bpy.ops.mesh.subdivide(number_cuts = level)
+    bpy.ops.object.editmode_toggle()
+    bpy.ops.object.mode_set(mode = 'OBJECT')
+    obj_from.select = False
+    
+    # Set obj_to to be current active object
+    obj_to.select = True
+    bpy.context.scene.objects.active = obj_to
+    
+    # Apply intersect to obtain the cut
+    bpy.ops.object.modifier_add(type='BOOLEAN')
+    intersect_mod = obj_to.modifiers['Boolean']
+    intersect_mod.operation = "DIFFERENCE"
     intersect_mod.object = obj_from
     bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
     
@@ -313,6 +345,7 @@ def intermediate_cleanup():
             
 """
 Remove all potential cuts with pd = -1 (not a volume fit)
+Remove all temporary cuts
 Flush all associated meshes
 """
 
@@ -341,83 +374,167 @@ def tier_end_cleanup():
         if mesh.name in mesh_to_remove:
             bpy.data.meshes.remove(mesh)
 
-            
-"""
-Remove all potential cuts if an accepted cut is found or
-remove all potential cuts, leaving the best if no accepted cut is found
-Flush all associated meshes
-"""
-def tier_end_cleanup_old():
+
+def perform_best_cut(obj):
     objects = bpy.data.objects
     
-    # If any accepted cuts are found, remove all potential cuts
-    accepted_cut_found = False
-    for obj in objects:
-        if "accepted" in obj.name:
-            accepted_cut_found = True
-            break
-        
-    if accepted_cut_found:
-        for obj in objects:
-            obj.select = False
-            if "potential" in obj.name:
-                obj.select = True
-        bpy.ops.object.delete()
-        for mesh in bpy.data.meshes:
-            if "potential" in mesh.name:
-                bpy.data.meshes.remove(mesh)
-        return
+    # Find the best cut
+    best_cut = None
+    best_pd = 0
+    for cut in objects:
+        cut.select = False
+        if "cut" in cut.name:
+            if best_cut == None:
+                best_cut = cut
+                best_pd = cut["pd"]
+            elif best_pd > cut["pd"]:
+                best_cut = cut
+                best_pd = cut["pd"]
+                
+    # Handle symmetric case
+    best_name = best_cut.name
+    if "neg" in best_name or "pos" in best_name:
+        best_name = best_name[0:-4]
     
-    # If no accepted cuts are found, keep the best potential cut
-    first_obj = None
-    for obj in objects:
-        if "potential" in obj.name and obj['pd'] != -1:
-            first_obj = obj
-            break
-        
-    if first_obj == None:
-        return
-    
-    if first_obj['pd'] ==None:
-        print("!!!!!!!!!!!!")
-        print(first_obj.name)
-        print("Unexpected error, first object does not have pd")
-        print("!!!!!!!!!!!!")
-    best_cut = first_obj
-    min_pd = first_obj['pd']
-    
-    # Get the best potential cut
-    for obj in objects:
-        if "potential" in obj.name and obj['pd'] == None:
-            print("!!!!!!!!!!!!")
-            print(obj.name)
-            print("Unexpected error, potential cut does not have pd")
-            print("!!!!!!!!!!!!")
-        if "potential" in obj.name and obj['pd'] != -1:
-            if obj['pd'] < min_pd:
-                min_pd = obj['pd']
-                best_cut = obj
-        
-    # Remove all non-intermediate potential cuts except for the best
+    pending_cuts = []
     mesh_to_remove = []
-    for obj in objects:
-        obj.select = False
-        if "potential" in obj.name and obj != best_cut:
-            mesh_to_remove.append(obj.name)
-            obj.select = True
+    for cut in objects:
+        cut.select = False
+        if "cut" in cut.name:
+            if best_name in cut.name:
+                pending_cuts.append(cut)
+            else:
+                mesh_to_remove.append(cut.name)
+                cut.select = True
+            
     bpy.ops.object.delete()
     for mesh in bpy.data.meshes:
         if mesh.name in mesh_to_remove:
             bpy.data.meshes.remove(mesh)
-            
-            
-def autocut_main(req_volume_ratio, req_aspect_ratio):
-    req_aspects = []
-    req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
-    req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
     
+    for cut in pending_cuts:
+        x_max = cut["cut_box"]["x_max"]
+        x_min = cut["cut_box"]["x_min"]
+        y_max = cut["cut_box"]["y_max"]
+        y_min = cut["cut_box"]["y_min"]
+        z_max = cut["cut_box"]["z_max"]
+        z_min = cut["cut_box"]["z_min"]
+        assist = create_cuboid(generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
+        div_level = tier_1_subdivision_level
+        i = cut.name.count("_")
+        if i>= 4:
+            div_level = tier_3_subdivision_level
+        elif i == 3:
+            div_level = tier_2_subdivision_level
+        else:
+            div_level = tier_1_subdivision_level
+        perform_boolean_difference(assist,obj,div_level)
+        
+    intermediate_cleanup()
+    
+def perform_picky_cut(obj,pick_range):
+    objects = bpy.data.objects
+    
+    # Find the cuts in range
+    candidates = []
+    for cut in objects:
+        cut.select = False
+        if "cut" in cut.name:
+            if math.floor(cut["pd"]*100) in pick_range:
+                candidates.append(cut)
+    
+    chosen_cut = None
+    if len(candidates) >= 1:
+        pick_id = random.randint(0,len(candidates)-1)
+        chosen_cut =candidates[pick_id]
+    else:
+        perform_best_cut(obj)
+        return
+    
+    # Handle symmetric case
+    chosen_name = chosen_cut.name
+    if "neg" in chosen_name or "pos" in chosen_name:
+        chosen_name = chosen_name[0:-4]
+    
+    pending_cuts = []
+    mesh_to_remove = []
+    for cut in objects:
+        cut.select = False
+        if "cut" in cut.name:
+            if chosen_name in cut.name:
+                pending_cuts.append(cut)
+            else:
+                mesh_to_remove.append(cut.name)
+                cut.select = True
+            
+    bpy.ops.object.delete()
+    for mesh in bpy.data.meshes:
+        if mesh.name in mesh_to_remove:
+            bpy.data.meshes.remove(mesh)
+    
+    for cut in pending_cuts:
+        x_max = cut["cut_box"]["x_max"]
+        x_min = cut["cut_box"]["x_min"]
+        y_max = cut["cut_box"]["y_max"]
+        y_min = cut["cut_box"]["y_min"]
+        z_max = cut["cut_box"]["z_max"]
+        z_min = cut["cut_box"]["z_min"]
+        assist = create_cuboid(generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
+        div_level = tier_1_subdivision_level
+        i = cut.name.count("_")
+        if i>= 4:
+            div_level = tier_3_subdivision_level
+        elif i == 3:
+            div_level = tier_2_subdivision_level
+        else:
+            div_level = tier_1_subdivision_level
+        perform_boolean_difference(assist,obj,div_level)
+        
+    intermediate_cleanup()
+
+def rename_cuts(name):
+    objects = bpy.data.objects
+    for cut in objects:
+        if "cut" in cut.name:
+            if "pos" in cut.name:
+                cut.name = str.format("{}_pos", name)
+                cut.data.name = str.format("{}_pos", name)
+            elif "neg" in cut.name:
+                cut.name = str.format("{}_neg", name)
+                cut.data.name = str.format("{}_neg", name)
+            else:
+                cut.name = name
+                cut.data.name = name
+    
+def autocut_main(cut_reqs,picks):
+    volume = 1.0
+    component_id = 1
+    i = 0
     obj = bpy.context.active_object
     
+    for cut_req in cut_reqs:
+        req_volume_ratio = cut_req["volume"]/volume
+        req_aspect_ratio = cut_req["aspect"]
+        req_aspects = []
+        req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
+        req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
+        
+        tier_1_matching(obj, req_volume_ratio, req_aspects)
+        if picks[i] == 0:
+            perform_best_cut(obj)
+        elif picks[i] == 1:
+            perform_picky_cut(obj,range(math.floor(allowed_pd_aspect*100),math.floor(mediocre_pd_cap*100)))
+        else:
+            perform_picky_cut(obj,range(math.floor(mediocre_pd_cap*100),math.floor(bad_pd_cap*100)))
+            
+        rename_cuts(str.format("component_{}", component_id))
+        
+        # TODO: use actual volume instead of req
+        volume = volume-req_volume_ratio
+        component_id += 1
+        i += 1
+    
+def tier_1_matching(obj, req_volume_ratio, req_aspects):
     # Get bound_box of object
     boundbox_verts = []
     for i in obj.bound_box:
@@ -475,7 +592,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
         else:  
             cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
         
-        perform_boolean_operation(obj,cuboid,"INTERSECT",tier_1_subdivision_level)
+        perform_boolean_intersection(obj,cuboid,tier_1_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"y",y_near,y_far,y_interval))
     
@@ -498,14 +615,17 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
     y_far = y_near
     accumulated_volume_ratio = 0
     cut_id = 1
-    for i in range(0,tier_1_divs):
+    for i in range(0,tier_1_divs-1):
         div_id = str.format("{}", cut_id)
         accumulated_volume_ratio += volume_ratios[i]
         y_far = y_near + (i+1)*y_interval
         if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             name = str.format("temp_cut_{}", cut_id)
             tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
-            perform_boolean_operation(obj,tier_1_cut,"INTERSECT",tier_1_subdivision_level)
+            tier_1_cut["cut_box"] = {"x_max":x_max_box,"x_min":x_min_box\
+                                     ,"y_max":y_far,"y_min":y_min_box\
+                                     ,"z_max":z_max_box,"z_min":z_min_box}
+            perform_boolean_intersection(obj,tier_1_cut,tier_1_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_1_cut,False)
             if is_accepted_cut:
                 tier_1_cut.name = str.format("accepted_cut_{}", cut_id)
@@ -516,7 +636,7 @@ def autocut_main(req_volume_ratio, req_aspect_ratio):
                 tier_2_matching_sym(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
         cut_id += 1
         
-    tier_end_cleanup()
+    #tier_end_cleanup()
            
     if DEBUG_MATCHING:     
         print("**************** Tier 1 matching ends")
@@ -579,10 +699,10 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         else:
             cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT",tier_2_subdivision_level)
+        perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
-        
+    
     volume_ratios = get_volume_ratios(cutsurface_areas)
     
     #print("tier 2 volume_ratios")
@@ -614,9 +734,15 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
             pos_name = str.format("{}_pos",name)
             neg_name = str.format("{}_neg",name)
             tier_2_cut_pos = create_cuboid(generate_cuboid_verts(x_max_box,x_far,y_max_box,y_min_box,z_max_box,z_min_box),pos_name)
+            tier_2_cut_pos["cut_box"] = {"x_max":x_max_box,"x_min":x_far\
+                                         ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
+                                         ,"z_max":z_max_box,"z_min":z_min_box}
             tier_2_cut_neg = create_cuboid(generate_cuboid_verts(x_near,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),neg_name)
-            perform_boolean_operation(tier_1_cut,tier_2_cut_pos,"INTERSECT",tier_2_subdivision_level)
-            perform_boolean_operation(tier_1_cut,tier_2_cut_neg,"INTERSECT",tier_2_subdivision_level)
+            tier_2_cut_neg["cut_box"] = {"x_max":x_near,"x_min":x_min_box\
+                                         ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
+                                         ,"z_max":z_max_box,"z_min":z_min_box}
+            perform_boolean_intersection(tier_1_cut,tier_2_cut_pos,tier_2_subdivision_level)
+            perform_boolean_intersection(tier_1_cut,tier_2_cut_neg,tier_2_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_2_cut_pos,True)
             tier_2_cut_neg['pd'] =tier_2_cut_pos['pd']
             if is_accepted_cut:
@@ -695,7 +821,7 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         else:
             cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        perform_boolean_operation(tier_1_cut,cuboid,"INTERSECT",tier_2_subdivision_level)
+        perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
@@ -734,7 +860,10 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             name = str.format("temp_cut_{}", div_id)
             tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
-            perform_boolean_operation(tier_1_cut,tier_2_cut,"INTERSECT",tier_2_subdivision_level)
+            tier_2_cut["cut_box"] = {"x_max":x_far,"x_min":x_near\
+                                     ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
+                                     ,"z_max":z_max_box,"z_min":z_min_box}
+            perform_boolean_intersection(tier_1_cut,tier_2_cut,tier_2_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_2_cut,False)
             if is_accepted_cut:
                 tier_2_cut.name = str.format("accepted_cut_{}", div_id)
@@ -817,7 +946,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
         else:
             cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
         
-        perform_boolean_operation(tier_2_cuts[0],cuboid,"INTERSECT",tier_3_subdivision_level)
+        perform_boolean_intersection(tier_2_cuts[0],cuboid,tier_3_subdivision_level)
        
         divisions.append(cuboid)
                     
@@ -843,7 +972,6 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
     z_far = z_near
     accumulated_volume_ratio = 0
     cut_id = 1
-    temp_sto = {'pd':-1}
     for i in range(0,tier_3_divs-1):  
         accumulated_volume_ratio += volume_ratios[i]   
         div_id = str.format("{}_{}_{}",tier_1_id,tier_2_id,cut_id) 
@@ -856,9 +984,15 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                 neg_name = str.format("{}_neg",name)
                 x_center = (x_max_box + x_min_box)/2
                 tier_3_cut_pos = create_cuboid(generate_cuboid_verts(x_max_box,x_center,y_max_box,y_min_box,z_far,z_min_box),pos_name)
+                tier_3_cut_pos["cut_box"] = {"x_max":tier_2_cuts[0]["cut_box"]["x_max"],"x_min":tier_2_cuts[0]["cut_box"]["x_min"]\
+                                             ,"y_max":tier_2_cuts[0]["cut_box"]["y_max"],"y_min":tier_2_cuts[0]["cut_box"]["y_min"]\
+                                             ,"z_max":z_far,"z_min":z_min_box}
                 tier_3_cut_neg = create_cuboid(generate_cuboid_verts(x_center,x_min_box,y_max_box,y_min_box,z_far,z_min_box),neg_name)
-                perform_boolean_operation(tier_2_cuts[0],tier_3_cut_pos,"INTERSECT",tier_3_subdivision_level)
-                perform_boolean_operation(tier_2_cuts[1],tier_3_cut_neg,"INTERSECT",tier_3_subdivision_level)
+                tier_3_cut_neg["cut_box"] = {"x_max":tier_2_cuts[1]["cut_box"]["x_max"],"x_min":tier_2_cuts[1]["cut_box"]["x_min"]\
+                                             ,"y_max":tier_2_cuts[1]["cut_box"]["y_max"],"y_min":tier_2_cuts[1]["cut_box"]["y_min"]\
+                                             ,"z_max":z_far,"z_min":z_min_box}
+                perform_boolean_intersection(tier_2_cuts[0],tier_3_cut_pos,tier_3_subdivision_level)
+                perform_boolean_intersection(tier_2_cuts[1],tier_3_cut_neg,tier_3_subdivision_level)
                 is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_3_cut_pos,True)
                 tier_3_cut_neg['pd'] =tier_3_cut_pos['pd']
                 if is_accepted_cut:
@@ -873,7 +1007,10 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                     tier_3_cut_neg.data.name = str.format("potential_cut_{}_neg", div_id)
             elif len(tier_2_cuts) == 1:
                 tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
-                perform_boolean_operation(tier_2_cuts[0],tier_3_cut,"INTERSECT",tier_3_subdivision_level)
+                tier_3_cut["cut_box"] = {"x_max":tier_2_cuts[0]["cut_box"]["x_max"],"x_min":tier_2_cuts[0]["cut_box"]["x_min"]\
+                                         ,"y_max":tier_2_cuts[0]["cut_box"]["y_max"],"y_min":tier_2_cuts[0]["cut_box"]["y_min"]\
+                                         ,"z_max":z_far,"z_min":z_min_box}
+                perform_boolean_intersection(tier_2_cuts[0],tier_3_cut,tier_3_subdivision_level)
                 is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_3_cut,False)
                 if is_accepted_cut:
                     tier_3_cut.name = str.format("accepted_cut_{}", div_id)

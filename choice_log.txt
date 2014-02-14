@@ -1,0 +1,5 @@
+accepted_cut_6 is chosen as component_1
+
+accepted_cut_12_4_7_neg is chosen as component_2_neg
+accepted_cut_12_4_7_pos is chosen as component_2_pos
+

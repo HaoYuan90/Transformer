@@ -10,16 +10,17 @@ import transformer_cutting
 import transformer_auto_cutting
 import testing_setup
 import arithmetic_helper
+import TransformerLogger
 
-exec(compile(open("C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py").read(), "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py", 'exec'))
+autocut_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py"
+exec(compile(open(autocut_src_path).read(), "autocut_src_path", 'exec'))
 
-exec(compile(open("C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py").read(), "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py", 'exec'))
 autocut_main(cut_reqs)
 
 """
 
 """
-picks = [2,2]
+picks = [0,0]
 cut_reqs = []
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
 cut_reqs.append({"volume":0.3,"aspect":(10,7,3)})

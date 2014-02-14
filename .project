@@ -14,4 +14,21 @@
 	<natures>
 		<nature>org.python.pydev.pythonNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>choice_log.txt</name>
+			<type>1</type>
+			<location>C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/choice_log.txt</location>
+		</link>
+		<link>
+			<name>error_log.txt</name>
+			<type>1</type>
+			<location>C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/error_log.txt</location>
+		</link>
+		<link>
+			<name>matching_log.txt</name>
+			<type>1</type>
+			<location>C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/matching_log.txt</location>
+		</link>
+	</linkedResources>
 </projectDescription>

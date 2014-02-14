@@ -10,6 +10,7 @@ import random
 import vector_helper as vector
 import arithmetic_helper as arith
 import analysis_helper as analysis
+from TransformerLogger import TransformerLogger
 
 """
 Global constants
@@ -31,8 +32,10 @@ allowed_pd_aspect = 0.2
 mediocre_pd_cap = 0.8
 bad_pd_cap = 1.5
 
+# Logger
+logger = TransformerLogger()
 # Debug messages control
-DEBUG_MATCHING = False
+DEBUG_MATCHING = True
 
 """
 Copy a blender obj, copy operator is buggy
@@ -213,13 +216,13 @@ Return BOOLEAN
 def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_sym):
     # Matching volume 
     if DEBUG_MATCHING:
-        print("{} matching {}".format(pad_msg(div_id), div_id))
-        print("{} volume req/act : {} / {}".format(pad_msg(div_id), req_volume_ratio, estimated_volume))
+        logger.add_matching_log("{} matching {}".format(pad_msg(div_id), div_id))
+        logger.add_matching_log("{} volume req/act : {} / {}".format(pad_msg(div_id), req_volume_ratio, estimated_volume))
 
     if not arith.percentage_discrepancy(estimated_volume, req_volume_ratio) <= allowed_pd_volume:
         if DEBUG_MATCHING:
-            print("{} rejected".format(pad_msg(div_id)))
-            print()
+            logger.add_matching_log("{} rejected".format(pad_msg(div_id)))
+            logger.add_matching_log("")
         cut['pd'] = -1
         return False
     
@@ -270,8 +273,8 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_
     configure_3.append(dim_y/dim_z)
     
     if DEBUG_MATCHING:
-        print("{} aspect ratio req : {}".format(pad_msg(div_id), req_aspects))
-        print("{} aspect ratio 1/2/3 : {} / {} / {}".format(pad_msg(div_id), configure_1, configure_2, configure_3))
+        logger.add_matching_log("{} aspect ratio req : {}".format(pad_msg(div_id), req_aspects))
+        logger.add_matching_log("{} aspect ratio 1/2/3 : {} / {} / {}".format(pad_msg(div_id), configure_1, configure_2, configure_3))
     
     # The smallest percentage difference possible
     pds = {arith.percentage_discrepancy(configure_1[0], req_aspects[0]) + arith.percentage_discrepancy(configure_1[1], req_aspects[1]),\
@@ -303,13 +306,13 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_
     
     if not aspect_ratio_satisfied:
         if DEBUG_MATCHING:
-            print("{} rejected".format(pad_msg(div_id)))
-            print()
+            logger.add_matching_log("{} rejected".format(pad_msg(div_id)))
+            logger.add_matching_log("")
         return False
     
     if DEBUG_MATCHING:
-        print("{} accepted".format(pad_msg(div_id)))
-        print()
+        logger.add_matching_log("{} accepted".format(pad_msg(div_id)))
+        logger.add_matching_log("")
         
     return True
 
@@ -358,10 +361,9 @@ def tier_end_cleanup():
         obj.select = False
         if "potential" in obj.name:
             if obj['pd'] == None:
-                print("!!!!!!!!!!!!")
-                print(obj.name)
-                print("Unexpected error, potential cut does not have pd")
-                print("!!!!!!!!!!!!")
+                logger.add_error_log("!!!!!!!!!!!!")
+                logger.add_error_log(str.format("Unexpected error, {} does not have pd",obj.name))
+                logger.add_error_log("!!!!!!!!!!!!")
             elif obj['pd'] == -1:
                 mesh_to_remove.append(obj.name)
                 obj.select = True
@@ -497,18 +499,24 @@ def rename_cuts(name):
     for cut in objects:
         if "cut" in cut.name:
             if "pos" in cut.name:
-                cut.name = str.format("{}_pos", name)
-                cut.data.name = str.format("{}_pos", name)
+                new_name = str.format("{}_pos", name)
+                logger.add_choice_log(str.format("{} is chosen as {}",cut.name,new_name))
+                cut.name = new_name
+                cut.data.name = new_name
             elif "neg" in cut.name:
-                cut.name = str.format("{}_neg", name)
-                cut.data.name = str.format("{}_neg", name)
+                new_name = str.format("{}_neg", name)
+                logger.add_choice_log(str.format("{} is chosen as {}",cut.name,new_name))
+                cut.name = new_name
+                cut.data.name = new_name
             else:
+                logger.add_choice_log(str.format("{} is chosen as {}",cut.name,name))
                 cut.name = name
                 cut.data.name = name
+    logger.add_choice_log("")
     
 def autocut_main(cut_reqs,picks):
+    logger.log_start()
     volume = 1.0
-    component_id = 1
     i = 0
     obj = bpy.context.active_object
     
@@ -527,12 +535,30 @@ def autocut_main(cut_reqs,picks):
         else:
             perform_picky_cut(obj,range(math.floor(mediocre_pd_cap*100),math.floor(bad_pd_cap*100)))
             
-        rename_cuts(str.format("component_{}", component_id))
+        rename_cuts(str.format("component_{}", i+1))
         
         # TODO: use actual volume instead of req
         volume = volume-req_volume_ratio
-        component_id += 1
         i += 1
+    
+    logger.log_exit()
+    
+"""
+Perform only one cutting without separation for debugging purpose
+"""
+def autocut_debug_main(cut_req):
+    logger.log_start()
+    obj = bpy.context.active_object
+    
+    req_volume_ratio = cut_req["volume"]
+    req_aspect_ratio = cut_req["aspect"]
+    req_aspects = []
+    req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
+    req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
+    
+    tier_1_matching(obj, req_volume_ratio, req_aspects)
+    
+    logger.log_exit()
     
 def tier_1_matching(obj, req_volume_ratio, req_aspects):
     # Get bound_box of object
@@ -608,8 +634,8 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
     intermediate_cleanup()
     
     if DEBUG_MATCHING:
-        print("**************** Tier 1 matching starts")
-        print()
+        logger.add_matching_log("**************** Tier 1 matching starts")
+        logger.add_matching_log("")
     # Find a cut with volume just bigger than required volume
     y_near = y_min
     y_far = y_near
@@ -639,8 +665,8 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
     #tier_end_cleanup()
            
     if DEBUG_MATCHING:     
-        print("**************** Tier 1 matching ends")
-        print()
+        logger.add_matching_log("**************** Tier 1 matching ends")
+        logger.add_matching_log("")
     
 def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     # Get bound_box of object
@@ -715,8 +741,8 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     intermediate_cleanup()
 
     if DEBUG_MATCHING:
-        print("******** Tier 2 sym matching of div {}".format(tier_1_id))
-        print()
+        logger.add_matching_log("******** Tier 2 sym matching of div {}".format(tier_1_id))
+        logger.add_matching_log("")
         
     # Find a cut with volume just bigger than required volume (symmetric case)
     accumulated_volume_ratio = 0
@@ -761,8 +787,8 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     tier_end_cleanup()
                 
     if DEBUG_MATCHING:     
-        print("******** Tier 2 sym matching of div {} ends".format(tier_1_id))
-        print()
+        logger.add_matching_log("******** Tier 2 sym matching of div {} ends".format(tier_1_id))
+        logger.add_matching_log("")
 
 def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     # Get bound_box of object
@@ -837,8 +863,8 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     intermediate_cleanup()
     
     if DEBUG_MATCHING:
-        print("******** Tier 2 asym matching of div {}".format(tier_1_id))
-        print()
+        logger.add_matching_log("******** Tier 2 asym matching of div {}".format(tier_1_id))
+        logger.add_matching_log("")
         
     # Find a cut with volume just bigger than required volume (symmetric case)
     accumulated_volume_ratio = 0
@@ -877,8 +903,8 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     tier_end_cleanup()
                 
     if DEBUG_MATCHING:     
-        print("******** Tier 2 asym matching of div {} ends".format(tier_1_id))
-        print()
+        logger.add_matching_log("******** Tier 2 asym matching of div {} ends".format(tier_1_id))
+        logger.add_matching_log("")
 
 """
 tier_2_cuts is a list containing [pos_cut, neg_cut] or one cut only
@@ -929,7 +955,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
         tier_2_cut.select = False
     
     if len(tier_2_cuts) < 1:
-        print("ERROR AT TIER 3 CUT, NO TIER 2 CUT PASSED IN")
+        logger.add_error_log(str.format("Error at tier 3 cut for {}, no param passed in."))
         return
     divisions = []
     cutsurface_areas = []
@@ -964,8 +990,8 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
     intermediate_cleanup()
     
     if DEBUG_MATCHING:
-        print("Tier 3 matching of div {}_{}".format(tier_1_id, tier_2_id))
-        print()
+        logger.add_matching_log("Tier 3 matching of div {}_{}".format(tier_1_id, tier_2_id))
+        logger.add_matching_log("")
     
     # Find acceptable cut
     z_near = z_min
@@ -1019,12 +1045,12 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                     tier_3_cut.name = str.format("potential_cut_{}", div_id)
                     tier_3_cut.data.name = str.format("potential_cut_{}", div_id)
             else:
-                print("Invalid parameter to tier_3_cut")
+                logger.add_error_log(str.format("Invalid parameter to tier_3_cut for {}",tier_2_id))
         cut_id += 1
                 
     if DEBUG_MATCHING:     
-        print("Tier 3 matching of div {}_{} ends".format(tier_1_id, tier_2_id))
-        print()
+        logger.add_matching_log("Tier 3 matching of div {}_{} ends".format(tier_1_id, tier_2_id))
+        logger.add_matching_log("")
 
             
             

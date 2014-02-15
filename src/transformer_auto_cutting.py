@@ -190,9 +190,11 @@ def get_cut_surfaces_area(vertices,polygons,dim_string,near_plane,far_plane,inte
 """
 Get estimated volume ratios based on surface area ratios
 """
-def get_volume_ratios(cut_surface_areas):
+def get_volume_ratios(cut_id, cut_surface_areas):
     volume_ratios = []
     area_sum = math.fsum(cut_surface_areas)
+    if area_sum == 0:
+        logger.add_error_log(str.format("Error at cut {} produced area sum 0",cut_id))
     for area in cut_surface_areas:
         volume_ratios.append(area/area_sum)
     return volume_ratios
@@ -202,11 +204,11 @@ Pad the print message in verify cut with appropriate number of '*'
 """
 def pad_msg(div_id):
     if div_id.count('_') == 0:
-        return "****************"
-    elif div_id.count('_') == 1:
-        return "********"
-    else:
         return ""
+    elif div_id.count('_') == 1:
+        return "**********"
+    else:
+        return "********************"
         
 """
 Verify if a cut can be accepted based on its volume ratio and aspect ratio
@@ -392,47 +394,8 @@ def perform_best_cut(obj):
             elif best_pd > cut["pd"]:
                 best_cut = cut
                 best_pd = cut["pd"]
-                
-    # Handle symmetric case
-    best_name = best_cut.name
-    if "neg" in best_name or "pos" in best_name:
-        best_name = best_name[0:-4]
     
-    pending_cuts = []
-    mesh_to_remove = []
-    for cut in objects:
-        cut.select = False
-        if "cut" in cut.name:
-            if best_name in cut.name:
-                pending_cuts.append(cut)
-            else:
-                mesh_to_remove.append(cut.name)
-                cut.select = True
-            
-    bpy.ops.object.delete()
-    for mesh in bpy.data.meshes:
-        if mesh.name in mesh_to_remove:
-            bpy.data.meshes.remove(mesh)
-    
-    for cut in pending_cuts:
-        x_max = cut["cut_box"]["x_max"]
-        x_min = cut["cut_box"]["x_min"]
-        y_max = cut["cut_box"]["y_max"]
-        y_min = cut["cut_box"]["y_min"]
-        z_max = cut["cut_box"]["z_max"]
-        z_min = cut["cut_box"]["z_min"]
-        assist = create_cuboid(generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
-        div_level = tier_1_subdivision_level
-        i = cut.name.count("_")
-        if i>= 4:
-            div_level = tier_3_subdivision_level
-        elif i == 3:
-            div_level = tier_2_subdivision_level
-        else:
-            div_level = tier_1_subdivision_level
-        perform_boolean_difference(assist,obj,div_level)
-        
-    intermediate_cleanup()
+    perform_specific_cut(obj,best_cut.name)
     
 def perform_picky_cut(obj,pick_range):
     objects = bpy.data.objects
@@ -453,8 +416,14 @@ def perform_picky_cut(obj,pick_range):
         perform_best_cut(obj)
         return
     
-    # Handle symmetric case
-    chosen_name = chosen_cut.name
+    perform_specific_cut(obj,chosen_cut.name)
+    
+"""
+Do specific cut with input name
+"""
+def perform_specific_cut(obj,input_name):
+    objects = bpy.data.objects
+    chosen_name = input_name
     if "neg" in chosen_name or "pos" in chosen_name:
         chosen_name = chosen_name[0:-4]
     
@@ -463,11 +432,18 @@ def perform_picky_cut(obj,pick_range):
     for cut in objects:
         cut.select = False
         if "cut" in cut.name:
-            if chosen_name in cut.name:
-                pending_cuts.append(cut)
+            if "neg" in cut.name or "pos" in cut.name:
+                if chosen_name == cut.name[0:-4]:
+                    pending_cuts.append(cut)
+                else:
+                    mesh_to_remove.append(cut.name)
+                    cut.select = True
             else:
-                mesh_to_remove.append(cut.name)
-                cut.select = True
+                if chosen_name == cut.name:
+                    pending_cuts.append(cut)
+                else:
+                    mesh_to_remove.append(cut.name)
+                    cut.select = True
             
     bpy.ops.object.delete()
     for mesh in bpy.data.meshes:
@@ -500,25 +476,25 @@ def rename_cuts(name):
         if "cut" in cut.name:
             if "pos" in cut.name:
                 new_name = str.format("{}_pos", name)
-                logger.add_choice_log(str.format("{} is chosen as {}",cut.name,new_name))
+                logger.add_choice_log(str.format("{} is renamed as {}",cut.name,new_name))
                 cut.name = new_name
                 cut.data.name = new_name
             elif "neg" in cut.name:
                 new_name = str.format("{}_neg", name)
-                logger.add_choice_log(str.format("{} is chosen as {}",cut.name,new_name))
+                logger.add_choice_log(str.format("{} is renamed as {}",cut.name,new_name))
                 cut.name = new_name
                 cut.data.name = new_name
             else:
-                logger.add_choice_log(str.format("{} is chosen as {}",cut.name,name))
+                logger.add_choice_log(str.format("{} is renamed as {}",cut.name,name))
                 cut.name = name
                 cut.data.name = name
     logger.add_choice_log("")
     
 def autocut_main(cut_reqs,picks):
-    logger.log_start()
     volume = 1.0
     i = 0
     obj = bpy.context.active_object
+    logger.log_start()
     
     for cut_req in cut_reqs:
         req_volume_ratio = cut_req["volume"]/volume
@@ -540,8 +516,35 @@ def autocut_main(cut_reqs,picks):
         # TODO: use actual volume instead of req
         volume = volume-req_volume_ratio
         i += 1
+        
+        # Change subdivision level to avoid a new cut with an edge landing right on the edge of an old cut
+        global tier_1_divs
+        global tier_2_divs
+        global tier_3_divs
+        tier_1_divs += 1
+        tier_2_divs += 2
+        tier_3_divs += 1
+        
+        logger.add_matching_separation()
+        
     
-    logger.log_exit()
+def autocut_debug_tree_main(cut_req,cut_name):
+    logger.log_start()
+    obj = bpy.context.active_object
+    
+    req_volume_ratio = cut_req["volume"]
+    req_aspect_ratio = cut_req["aspect"]
+    req_aspects = []
+    req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
+    req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
+    
+    tier_1_matching(obj, req_volume_ratio, req_aspects)
+    perform_specific_cut(obj,cut_name)
+        
+    rename_cuts(str.format("component_{}", 1))
+
+    logger.add_matching_separation()
+
     
 """
 Perform only one cutting without separation for debugging purpose
@@ -557,8 +560,6 @@ def autocut_debug_main(cut_req):
     req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
     
     tier_1_matching(obj, req_volume_ratio, req_aspects)
-    
-    logger.log_exit()
     
 def tier_1_matching(obj, req_volume_ratio, req_aspects):
     # Get bound_box of object
@@ -622,7 +623,7 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"y",y_near,y_far,y_interval))
     
-    volume_ratios = get_volume_ratios(cutsurface_areas)
+    volume_ratios = get_volume_ratios("tier_1",cutsurface_areas)
     
     #print("tier 1 cutsurface_areas")
     #print(cutsurface_areas)
@@ -729,7 +730,7 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
     
-    volume_ratios = get_volume_ratios(cutsurface_areas)
+    volume_ratios = get_volume_ratios(tier_1_id,cutsurface_areas)
     
     #print("tier 2 volume_ratios")
     #print(volume_ratios)
@@ -851,7 +852,7 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
-    volume_ratios = get_volume_ratios(cutsurface_areas)
+    volume_ratios = get_volume_ratios(tier_1_id,cutsurface_areas)
     
     #print("tier 2 volume_ratios")
     #print(volume_ratios)
@@ -978,7 +979,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                     
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"z",z_near,z_far,z_interval))
         
-    volume_ratios = get_volume_ratios(cutsurface_areas)
+    volume_ratios = get_volume_ratios(str.format("{}_{}",tier_1_id,tier_2_id),cutsurface_areas)
     
     #print("tier 3 volume_ratios")
     #print(volume_ratios)

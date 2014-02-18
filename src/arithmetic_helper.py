@@ -16,8 +16,8 @@ def squared_sum(x):
     return summation(squared_x)
     
 """ 
-    Get sum of items multiplied to each other in 2 lists (xy+xy+.....)
-    Length of lists have to be the same
+Get sum of items multiplied to each other in 2 lists (xy+xy+.....)
+Length of lists have to be the same
 """
 def mult_sum(x,y):
     xy = []
@@ -27,3 +27,17 @@ def mult_sum(x,y):
 
 def percentage_discrepancy(est,real):
     return math.fabs(real-est)/real
+
+"""
+Get the next smallest prime number
+"""
+def next_smallest_prime(mynum):
+    num = mynum+1
+    while True:
+        isPrime = True
+        for i in range(2, math.floor(math.sqrt(num))+1):
+            if num%i == 0:
+                isPrime = False
+        if isPrime:
+            return num
+        num = num+1

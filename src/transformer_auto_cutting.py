@@ -9,7 +9,9 @@ import math
 import random
 import vector_helper as vector
 import arithmetic_helper as arith
-import analysis_helper as analysis
+import analytic_helper as analysis
+import blender_ops_helper as bops
+
 from TransformerLogger import TransformerLogger
 
 """
@@ -38,112 +40,48 @@ logger = TransformerLogger()
 DEBUG_MATCHING = True
 
 """
-Copy a blender obj, copy operator is buggy
-Takes in original_object, name of copied object
-Return copied object
+Get a bunch of values from the boundbox of an object
 """
-def copy_object(orig_obj, to_obj_name):
-    temp_mesh = bpy.data.meshes.new('SomeNameThatDoesntMatter')
-    copy = bpy.data.objects.new(to_obj_name, temp_mesh)
-    copy.data = orig_obj.data.copy()
-    copy.data.name = to_obj_name
-    copy.location = orig_obj.location
-    copy.scale = orig_obj.scale
-    copy.rotation_euler = orig_obj.rotation_euler
-    bpy.context.scene.objects.link(copy)
-    
-    bpy.data.meshes.remove(temp_mesh)
-    return copy
+def process_boundbox(boundboxes,num_divs):
+    boundbox_verts = []
+    for boundbox in boundboxes:
+        for i in boundbox:
+            boundbox_verts.append(i)
 
-"""
-Return the 8 vertices of a cuboid constructed from  constrains of 3 dimensions
-"""
-def generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min):
-    verts = []
-    verts.append((x_min,y_max,z_max))
-    verts.append((x_max,y_max,z_max))
-    verts.append((x_min,y_max,z_min))
-    verts.append((x_max,y_max,z_min))
-    verts.append((x_min,y_min,z_max))
-    verts.append((x_max,y_min,z_max))
-    verts.append((x_min,y_min,z_min))
-    verts.append((x_max,y_min,z_min))
-    return verts
-
-"""
-Create a cubic blender object
-Takes in 8 vertices of cuboid and name of the object
-Return the object created
-"""
-def create_cuboid(verts, name):
-    cuboid_verts = verts
-    cuboid_faces = [(0,1,3,2),(4,6,7,5),(0,4,5,1),(1,5,7,3),(4,0,2,6),(6,2,3,7)]
-    cuboid_mesh = bpy.data.meshes.new(name)
-    cuboid = bpy.data.objects.new(name, cuboid_mesh)
-    bpy.context.scene.objects.link(cuboid)
-    cuboid_mesh.from_pydata(cuboid_verts, [], cuboid_faces)
-    cuboid_mesh.update(calc_edges=True)
-    return cuboid
-
-"""
-Perform blender's boolean operation
-obj_from is the object parameter in boolean operation
-obj_to is the object which operator is applied to
-level is the level of subdivision
-"""
-def perform_boolean_intersection(obj_from, obj_to, level):
-    # Set obj_to to be current active object
-    obj_to.select = True
-    bpy.context.scene.objects.active = obj_to
-    bpy.ops.object.mode_set(mode = 'EDIT')
+    x_min = boundbox_verts[0][0]
+    x_max = boundbox_verts[0][0]
+    y_min = boundbox_verts[0][1]
+    y_max = boundbox_verts[0][1]
+    z_min = boundbox_verts[0][2]
+    z_max = boundbox_verts[0][2]
+    for i in boundbox_verts:
+        if i[0] > x_max:
+            x_max = i[0]
+        if i[0] < x_min:
+            x_min = i[0]
+        if i[1] > y_max:
+            y_max = i[1]
+        if i[1] < y_min:
+            y_min = i[1]
+        if i[2] > z_max:
+            z_max = i[2]
+        if i[2] < z_min:
+            z_min = i[2]
     
-    bpy.ops.mesh.subdivide(number_cuts = level)
+    x_interval = (x_max-x_min)/num_divs
+    y_interval = (y_max-y_min)/num_divs
+    z_interval = (z_max-z_min)/num_divs
+    x_max_box = x_max + x_interval
+    x_min_box = x_min - x_interval
+    y_max_box = y_max + y_interval
+    y_min_box = y_min - y_interval
+    z_max_box = z_max + z_interval
+    z_min_box = z_min - z_interval
     
-    bpy.ops.object.editmode_toggle()
-    
-    # Apply intersect to obtain the cut
-    bpy.ops.object.modifier_add(type='BOOLEAN')
-    intersect_mod = obj_to.modifiers['Boolean']
-    intersect_mod.operation = "INTERSECT"
-    intersect_mod.object = obj_from
-    bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
-    
-    # Remove doubles
-    bpy.ops.object.mode_set(mode = 'EDIT')
-    bpy.ops.mesh.remove_doubles()
-    
-    # Deselect this obj_to
-    bpy.ops.object.mode_set(mode = 'OBJECT')
-    obj_to.select = False
-    
-def perform_boolean_difference(obj_from, obj_to, level):
-    # Subdivide obj_from
-    obj_from.select = True
-    bpy.context.scene.objects.active = obj_from
-    bpy.ops.object.mode_set(mode = 'EDIT')
-    bpy.ops.mesh.subdivide(number_cuts = level)
-    bpy.ops.object.editmode_toggle()
-    bpy.ops.object.mode_set(mode = 'OBJECT')
-    obj_from.select = False
-    
-    # Set obj_to to be current active object
-    obj_to.select = True
-    bpy.context.scene.objects.active = obj_to
-    
-    # Apply intersect to obtain the cut
-    bpy.ops.object.modifier_add(type='BOOLEAN')
-    intersect_mod = obj_to.modifiers['Boolean']
-    intersect_mod.operation = "DIFFERENCE"
-    intersect_mod.object = obj_from
-    bpy.ops.object.modifier_apply(apply_as='DATA', modifier=intersect_mod.name)
-    
-    # Remove doubles
-    bpy.ops.object.mode_set(mode = 'EDIT')
-    bpy.ops.mesh.remove_doubles()
-    
-    # Deselect this obj_to
-    bpy.ops.object.mode_set(mode = 'OBJECT')
-    obj_to.select = False
+    params = {"x_min":x_min,"x_max":x_max,"y_min":y_min,"y_max":y_max,"z_min":z_min,"z_max":z_max,\
+            "x_interval":x_interval,"y_interval":y_interval,"z_interval":z_interval,\
+            "x_max_box":x_max_box,"x_min_box":x_min_box,"y_max_box":y_max_box,"y_min_box":y_min_box,"z_max_box":z_max_box,"z_min_box":z_min_box}
+    return params
      
 """
 Get area of cut surfaces for volume approximation
@@ -231,31 +169,13 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_
     # Matching aspect ratio    
     aspect_ratio_satisfied = False
     
-    # Get bound_box of object
-    boundbox_verts = []
-    for i in cut.bound_box:
-        boundbox_verts.append(i)
-    
-    # Get bound coordinates of the object
-    x_min = boundbox_verts[0][0]
-    x_max = boundbox_verts[0][0]
-    y_min = boundbox_verts[0][1]
-    y_max = boundbox_verts[0][1]
-    z_min = boundbox_verts[0][2]
-    z_max = boundbox_verts[0][2]
-    for i in boundbox_verts:
-        if i[0] > x_max:
-            x_max = i[0]
-        if i[0] < x_min:
-            x_min = i[0]
-        if i[1] > y_max:
-            y_max = i[1]
-        if i[1] < y_min:
-            y_min = i[1]
-        if i[2] > z_max:
-            z_max = i[2]
-        if i[2] < z_min:
-            z_min = i[2]
+    params = process_boundbox([cut.bound_box],1)
+    x_max = params["x_max"]
+    x_min = params["x_min"]
+    y_max = params["y_max"]
+    y_min = params["y_min"]
+    z_max = params["z_max"]
+    z_min = params["z_min"]
             
     dim_x = x_max - x_min
     dim_y = y_max - y_min
@@ -457,7 +377,7 @@ def perform_specific_cut(obj,input_name):
         y_min = cut["cut_box"]["y_min"]
         z_max = cut["cut_box"]["z_max"]
         z_min = cut["cut_box"]["z_min"]
-        assist = create_cuboid(generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
+        assist = bops.create_cuboid(bops.generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
         div_level = tier_1_subdivision_level
         i = cut.name.count("_")
         if i>= 4:
@@ -466,7 +386,7 @@ def perform_specific_cut(obj,input_name):
             div_level = tier_2_subdivision_level
         else:
             div_level = tier_1_subdivision_level
-        perform_boolean_difference(assist,obj,div_level)
+        bops.perform_boolean_difference(assist,obj,div_level)
         
     intermediate_cleanup()
 
@@ -521,15 +441,23 @@ def autocut_main(cut_reqs,picks):
         global tier_1_divs
         global tier_2_divs
         global tier_3_divs
-        tier_1_divs += 1
-        tier_2_divs += 2
-        tier_3_divs += 1
+        tier_1_divs = arith.next_smallest_prime(tier_1_divs)
+        tier_2_divs = arith.next_smallest_prime(tier_2_divs)
+        tier_3_divs = arith.next_smallest_prime(tier_3_divs)
         
         logger.add_matching_separation()
         
     
-def autocut_debug_tree_main(cut_req,cut_name):
+def autocut_debug_tree_main(cut_req,cut_name,num):
     logger.log_start()
+    global tier_1_divs
+    global tier_2_divs
+    global tier_3_divs
+    for i in range(0,num):
+        tier_1_divs = arith.next_smallest_prime(tier_1_divs)
+        tier_2_divs = arith.next_smallest_prime(tier_2_divs)
+        tier_3_divs = arith.next_smallest_prime(tier_3_divs)
+    logger.add_matching_log(str.format("Level of divisions are {},{},{}", tier_1_divs,tier_2_divs,tier_3_divs))    
     obj = bpy.context.active_object
     
     req_volume_ratio = cut_req["volume"]
@@ -549,8 +477,16 @@ def autocut_debug_tree_main(cut_req,cut_name):
 """
 Perform only one cutting without separation for debugging purpose
 """
-def autocut_debug_main(cut_req):
+def autocut_debug_main(cut_req,num):
     logger.log_start()
+    global tier_1_divs
+    global tier_2_divs
+    global tier_3_divs
+    for i in range(0,num):
+        tier_1_divs = arith.next_smallest_prime(tier_1_divs)
+        tier_2_divs = arith.next_smallest_prime(tier_2_divs)
+        tier_3_divs = arith.next_smallest_prime(tier_3_divs)
+    logger.add_matching_log(str.format("Level of divisions are {},{},{}", tier_1_divs,tier_2_divs,tier_3_divs))
     obj = bpy.context.active_object
     
     req_volume_ratio = cut_req["volume"]
@@ -562,46 +498,16 @@ def autocut_debug_main(cut_req):
     tier_1_matching(obj, req_volume_ratio, req_aspects)
     
 def tier_1_matching(obj, req_volume_ratio, req_aspects):
-    # Get bound_box of object
-    boundbox_verts = []
-    for i in obj.bound_box:
-        boundbox_verts.append(i)
-        
-    # plug in PCA here if needed, perform pca, rotate object and save the rotation
+    params = process_boundbox([obj.bound_box],tier_1_divs)
+    y_min = params["y_min"]
+    y_interval = params["y_interval"]
+    x_max_box = params["x_max_box"]
+    x_min_box = params["x_min_box"]
+    y_max_box = params["y_max_box"]
+    y_min_box = params["y_min_box"]
+    z_max_box = params["z_max_box"]
+    z_min_box = params["z_min_box"]
     
-    # Get bound coordinates of the object
-    x_min = boundbox_verts[0][0]
-    x_max = boundbox_verts[0][0]
-    y_min = boundbox_verts[0][1]
-    y_max = boundbox_verts[0][1]
-    z_min = boundbox_verts[0][2]
-    z_max = boundbox_verts[0][2]
-    for i in boundbox_verts:
-        if i[0] > x_max:
-            x_max = i[0]
-        if i[0] < x_min:
-            x_min = i[0]
-        if i[1] > y_max:
-            y_max = i[1]
-        if i[1] < y_min:
-            y_min = i[1]
-        if i[2] > z_max:
-            z_max = i[2]
-        if i[2] < z_min:
-            z_min = i[2]
-    
-    # First division is along y-axis
-    y_interval = (y_max-y_min)/tier_1_divs
-    x_temp = (x_max-x_min)/tier_1_divs
-    z_temp = (z_max-z_min)/tier_1_divs
-    # The bigger box surrounding the object to facilitate boolean operation
-    x_max_box = x_max + x_temp
-    x_min_box = x_min - x_temp
-    z_max_box = z_max + z_temp
-    z_min_box = z_min - z_temp
-    y_max_box = y_max + y_interval
-    y_min_box = y_min - y_interval
-
     this_y = y_min
     obj.select = False
     divisions = []
@@ -613,24 +519,19 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
         name = str.format("division_{}", i+1)
         cuboid = None
         if i == 0:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
-        elif i ++ tier_1_divs - 1:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_near,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
+        elif i == tier_1_divs - 1:
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_near,z_max_box,z_min_box),name)
         else:  
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
         
-        perform_boolean_intersection(obj,cuboid,tier_1_subdivision_level)
+        bops.perform_boolean_intersection(obj,cuboid,tier_1_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"y",y_near,y_far,y_interval))
     
     volume_ratios = get_volume_ratios("tier_1",cutsurface_areas)
     
-    #print("tier 1 cutsurface_areas")
-    #print(cutsurface_areas)
-    #print("tier 1 volume_ratios")
-    #print(volume_ratios)
-    
-    analysis.analyse_volume_approximation(obj, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(obj, divisions, volume_ratios, logger)
     
     intermediate_cleanup()
     
@@ -638,21 +539,19 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
         logger.add_matching_log("**************** Tier 1 matching starts")
         logger.add_matching_log("")
     # Find a cut with volume just bigger than required volume
-    y_near = y_min
-    y_far = y_near
     accumulated_volume_ratio = 0
     cut_id = 1
     for i in range(0,tier_1_divs-1):
         div_id = str.format("{}", cut_id)
         accumulated_volume_ratio += volume_ratios[i]
-        y_far = y_near + (i+1)*y_interval
+        y_far = y_min + (i+1)*y_interval
         if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             name = str.format("temp_cut_{}", cut_id)
-            tier_1_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
+            tier_1_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
             tier_1_cut["cut_box"] = {"x_max":x_max_box,"x_min":x_min_box\
                                      ,"y_max":y_far,"y_min":y_min_box\
                                      ,"z_max":z_max_box,"z_min":z_min_box}
-            perform_boolean_intersection(obj,tier_1_cut,tier_1_subdivision_level)
+            bops.perform_boolean_intersection(obj,tier_1_cut,tier_1_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_1_cut,False)
             if is_accepted_cut:
                 tier_1_cut.name = str.format("accepted_cut_{}", cut_id)
@@ -660,7 +559,7 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
             elif accumulated_volume_ratio > req_volume_ratio:
                 tier_1_cut.name = str.format("potential_cut_{}", cut_id)
                 tier_1_cut.data.name = str.format("potential_cut_{}", cut_id)
-                tier_2_matching_sym(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+                tier_2_matching_asym(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
         cut_id += 1
         
     #tier_end_cleanup()
@@ -670,44 +569,16 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
         logger.add_matching_log("")
     
 def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
-    # Get bound_box of object
-    boundbox_verts = []
-    for i in tier_1_cut.bound_box:
-        boundbox_verts.append(i)
-        
-    # plug in PCA here if needed, perform pca, rotate object and save the rotation
-    
-    # Get bound coordinates of the object
-    x_min = boundbox_verts[0][0]
-    x_max = boundbox_verts[0][0]
-    y_min = boundbox_verts[0][1]
-    y_max = boundbox_verts[0][1]
-    z_min = boundbox_verts[0][2]
-    z_max = boundbox_verts[0][2]
-    for i in boundbox_verts:
-        if i[0] > x_max:
-            x_max = i[0]
-        if i[0] < x_min:
-            x_min = i[0]
-        if i[1] > y_max:
-            y_max = i[1]
-        if i[1] < y_min:
-            y_min = i[1]
-        if i[2] > z_max:
-            z_max = i[2]
-        if i[2] < z_min:
-            z_min = i[2]
-    
-    # 2nd division is along x-axis
-    x_interval = (x_max-x_min)/tier_2_divs
-    y_temp = (y_max-y_min)/tier_2_divs
-    z_temp = (z_max-z_min)/tier_2_divs
-    y_max_box = y_max + y_temp
-    y_min_box = y_min - y_temp
-    z_max_box = z_max + z_temp
-    z_min_box = z_min - z_temp
-    x_max_box = x_max + x_interval
-    x_min_box = x_min - x_interval
+    params = process_boundbox([tier_1_cut.bound_box],tier_2_divs)
+    x_min = params["x_min"]
+    x_max = params["x_max"]
+    x_interval = params["x_interval"]
+    x_max_box = params["x_max_box"]
+    x_min_box = params["x_min_box"]
+    y_max_box = params["y_max_box"]
+    y_min_box = params["y_min_box"]
+    z_max_box = params["z_max_box"]
+    z_min_box = params["z_min_box"]
 
     this_x = x_min
     tier_1_cut.select = False
@@ -720,24 +591,19 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         name = str.format("division_{}", i+1)
         cuboid = None
         if i == 0:
-            cuboid = create_cuboid(generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
         elif i == tier_2_divs -1:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         else:
-            cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
+        bops.perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
     
     volume_ratios = get_volume_ratios(tier_1_id,cutsurface_areas)
     
-    #print("tier 2 volume_ratios")
-    #print(volume_ratios)
-    #print("tier 2 cutsurface_areas")
-    #print(cutsurface_areas)
-    
-    analysis.analyse_volume_approximation(tier_1_cut, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(tier_1_cut, divisions, volume_ratios, logger)
     
     intermediate_cleanup()
 
@@ -760,16 +626,16 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
             name = str.format("temp_cut_{}", div_id)
             pos_name = str.format("{}_pos",name)
             neg_name = str.format("{}_neg",name)
-            tier_2_cut_pos = create_cuboid(generate_cuboid_verts(x_max_box,x_far,y_max_box,y_min_box,z_max_box,z_min_box),pos_name)
+            tier_2_cut_pos = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_far,y_max_box,y_min_box,z_max_box,z_min_box),pos_name)
             tier_2_cut_pos["cut_box"] = {"x_max":x_max_box,"x_min":x_far\
                                          ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
                                          ,"z_max":z_max_box,"z_min":z_min_box}
-            tier_2_cut_neg = create_cuboid(generate_cuboid_verts(x_near,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),neg_name)
+            tier_2_cut_neg = bops.create_cuboid(bops.generate_cuboid_verts(x_near,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),neg_name)
             tier_2_cut_neg["cut_box"] = {"x_max":x_near,"x_min":x_min_box\
                                          ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
                                          ,"z_max":z_max_box,"z_min":z_min_box}
-            perform_boolean_intersection(tier_1_cut,tier_2_cut_pos,tier_2_subdivision_level)
-            perform_boolean_intersection(tier_1_cut,tier_2_cut_neg,tier_2_subdivision_level)
+            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut_pos,tier_2_subdivision_level)
+            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut_neg,tier_2_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_2_cut_pos,True)
             tier_2_cut_neg['pd'] =tier_2_cut_pos['pd']
             if is_accepted_cut:
@@ -792,44 +658,16 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         logger.add_matching_log("")
 
 def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
-    # Get bound_box of object
-    boundbox_verts = []
-    for i in tier_1_cut.bound_box:
-        boundbox_verts.append(i)
-        
-    # plug in PCA here if needed, perform pca, rotate object and save the rotation
-    
-    # Get bound coordinates of the object
-    x_min = boundbox_verts[0][0]
-    x_max = boundbox_verts[0][0]
-    y_min = boundbox_verts[0][1]
-    y_max = boundbox_verts[0][1]
-    z_min = boundbox_verts[0][2]
-    z_max = boundbox_verts[0][2]
-    for i in boundbox_verts:
-        if i[0] > x_max:
-            x_max = i[0]
-        if i[0] < x_min:
-            x_min = i[0]
-        if i[1] > y_max:
-            y_max = i[1]
-        if i[1] < y_min:
-            y_min = i[1]
-        if i[2] > z_max:
-            z_max = i[2]
-        if i[2] < z_min:
-            z_min = i[2]
-    
-    # 2nd division is along x-axis
-    x_interval = (x_max-x_min)/tier_2_divs
-    y_temp = (y_max-y_min)/tier_2_divs
-    z_temp = (z_max-z_min)/tier_2_divs
-    y_max_box = y_max + y_temp
-    y_min_box = y_min - y_temp
-    z_max_box = z_max + z_temp
-    z_min_box = z_min - z_temp
-    x_max_box = x_max + x_interval
-    x_min_box = x_min - x_interval
+    params = process_boundbox([tier_1_cut.bound_box],tier_2_divs)
+    x_min = params["x_min"]
+    x_max = params["x_max"]
+    x_interval = params["x_interval"]
+    x_max_box = params["x_max_box"]
+    x_min_box = params["x_min_box"]
+    y_max_box = params["y_max_box"]
+    y_min_box = params["y_min_box"]
+    z_max_box = params["z_max_box"]
+    z_min_box = params["z_min_box"]
 
     this_x = x_min
     tier_1_cut.select = False
@@ -842,24 +680,19 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         name = str.format("division_{}", i+1)
         cuboid = None
         if i == 0:
-            cuboid = create_cuboid(generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
         elif i == tier_2_divs -1:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         else:
-            cuboid = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
+        bops.perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
     volume_ratios = get_volume_ratios(tier_1_id,cutsurface_areas)
     
-    #print("tier 2 volume_ratios")
-    #print(volume_ratios)
-    #print("tier 2 cutsurface_areas")
-    #print(cutsurface_areas)
-    
-    analysis.analyse_volume_approximation(tier_1_cut, divisions, volume_ratios)
+    analysis.analyse_volume_approximation(tier_1_cut, divisions, volume_ratios, logger)
     
     intermediate_cleanup()
     
@@ -886,11 +719,11 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         
         if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
             name = str.format("temp_cut_{}", div_id)
-            tier_2_cut = create_cuboid(generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
+            tier_2_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
             tier_2_cut["cut_box"] = {"x_max":x_far,"x_min":x_near\
                                      ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
                                      ,"z_max":z_max_box,"z_min":z_min_box}
-            perform_boolean_intersection(tier_1_cut,tier_2_cut,tier_2_subdivision_level)
+            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut,tier_2_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_2_cut,False)
             if is_accepted_cut:
                 tier_2_cut.name = str.format("accepted_cut_{}", div_id)
@@ -911,46 +744,19 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
 tier_2_cuts is a list containing [pos_cut, neg_cut] or one cut only
 """
 def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_aspects, x_dim):
-    # Get bound_box of object
-    boundbox_verts = []
+    boundboxes = []
     for tier_2_cut in tier_2_cuts:
-        for i in tier_2_cut.bound_box:
-            boundbox_verts.append(i)
-        
-    # plug in PCA here if needed, perform pca, rotate object and save the rotation
+        boundboxes.append(tier_2_cut.bound_box)
+    params = process_boundbox(boundboxes,tier_3_divs)
+    z_min = params["z_min"]
+    z_interval = params["z_interval"]
+    x_max_box = params["x_max_box"]
+    x_min_box = params["x_min_box"]
+    y_max_box = params["y_max_box"]
+    y_min_box = params["y_min_box"]
+    z_max_box = params["z_max_box"]
+    z_min_box = params["z_min_box"]
     
-    # Get bound coordinates of the object
-    x_min = boundbox_verts[0][0]
-    x_max = boundbox_verts[0][0]
-    y_min = boundbox_verts[0][1]
-    y_max = boundbox_verts[0][1]
-    z_min = boundbox_verts[0][2]
-    z_max = boundbox_verts[0][2]
-    for i in boundbox_verts:
-        if i[0] > x_max:
-            x_max = i[0]
-        if i[0] < x_min:
-            x_min = i[0]
-        if i[1] > y_max:
-            y_max = i[1]
-        if i[1] < y_min:
-            y_min = i[1]
-        if i[2] > z_max:
-            z_max = i[2]
-        if i[2] < z_min:
-            z_min = i[2]
-    
-    # 3rd division is along z-axis
-    z_interval = (z_max-z_min)/tier_3_divs
-    x_temp = (x_max-x_min)/tier_3_divs
-    y_temp = (y_max-y_min)/tier_3_divs
-    x_max_box = x_max + x_temp
-    x_min_box = x_min - x_temp
-    y_max_box = y_max + y_temp
-    y_min_box = y_min - y_temp
-    z_max_box = z_max + z_interval
-    z_min_box = z_min - z_interval
-
     this_z = z_min
     for tier_2_cut in tier_2_cuts:
         tier_2_cut.select = False
@@ -967,13 +773,13 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
         name = str.format("division_{}", i+1)
         cuboid = None
         if i == 0:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
         elif i == tier_3_divs - 1:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_max_box,z_near),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_max_box,z_near),name)
         else:
-            cuboid = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
+            cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
         
-        perform_boolean_intersection(tier_2_cuts[0],cuboid,tier_3_subdivision_level)
+        bops.perform_boolean_intersection(tier_2_cuts[0],cuboid,tier_3_subdivision_level)
        
         divisions.append(cuboid)
                     
@@ -981,12 +787,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
         
     volume_ratios = get_volume_ratios(str.format("{}_{}",tier_1_id,tier_2_id),cutsurface_areas)
     
-    #print("tier 3 volume_ratios")
-    #print(volume_ratios)
-    #print("tier 3 cutsurface_areas")
-    #print(cutsurface_areas)
-    
-    analysis.analyse_volume_approximation(tier_2_cuts[0], divisions, volume_ratios)
+    analysis.analyse_volume_approximation(tier_2_cuts[0], divisions, volume_ratios, logger)
     
     intermediate_cleanup()
     
@@ -1010,16 +811,16 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                 pos_name = str.format("{}_pos",name)
                 neg_name = str.format("{}_neg",name)
                 x_center = (x_max_box + x_min_box)/2
-                tier_3_cut_pos = create_cuboid(generate_cuboid_verts(x_max_box,x_center,y_max_box,y_min_box,z_far,z_min_box),pos_name)
+                tier_3_cut_pos = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_center,y_max_box,y_min_box,z_far,z_min_box),pos_name)
                 tier_3_cut_pos["cut_box"] = {"x_max":tier_2_cuts[0]["cut_box"]["x_max"],"x_min":tier_2_cuts[0]["cut_box"]["x_min"]\
                                              ,"y_max":tier_2_cuts[0]["cut_box"]["y_max"],"y_min":tier_2_cuts[0]["cut_box"]["y_min"]\
                                              ,"z_max":z_far,"z_min":z_min_box}
-                tier_3_cut_neg = create_cuboid(generate_cuboid_verts(x_center,x_min_box,y_max_box,y_min_box,z_far,z_min_box),neg_name)
+                tier_3_cut_neg = bops.create_cuboid(bops.generate_cuboid_verts(x_center,x_min_box,y_max_box,y_min_box,z_far,z_min_box),neg_name)
                 tier_3_cut_neg["cut_box"] = {"x_max":tier_2_cuts[1]["cut_box"]["x_max"],"x_min":tier_2_cuts[1]["cut_box"]["x_min"]\
                                              ,"y_max":tier_2_cuts[1]["cut_box"]["y_max"],"y_min":tier_2_cuts[1]["cut_box"]["y_min"]\
                                              ,"z_max":z_far,"z_min":z_min_box}
-                perform_boolean_intersection(tier_2_cuts[0],tier_3_cut_pos,tier_3_subdivision_level)
-                perform_boolean_intersection(tier_2_cuts[1],tier_3_cut_neg,tier_3_subdivision_level)
+                bops.perform_boolean_intersection(tier_2_cuts[0],tier_3_cut_pos,tier_3_subdivision_level)
+                bops.perform_boolean_intersection(tier_2_cuts[1],tier_3_cut_neg,tier_3_subdivision_level)
                 is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_3_cut_pos,True)
                 tier_3_cut_neg['pd'] =tier_3_cut_pos['pd']
                 if is_accepted_cut:
@@ -1033,11 +834,11 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                     tier_3_cut_neg.name = str.format("potential_cut_{}_neg", div_id)
                     tier_3_cut_neg.data.name = str.format("potential_cut_{}_neg", div_id)
             elif len(tier_2_cuts) == 1:
-                tier_3_cut = create_cuboid(generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
+                tier_3_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
                 tier_3_cut["cut_box"] = {"x_max":tier_2_cuts[0]["cut_box"]["x_max"],"x_min":tier_2_cuts[0]["cut_box"]["x_min"]\
                                          ,"y_max":tier_2_cuts[0]["cut_box"]["y_max"],"y_min":tier_2_cuts[0]["cut_box"]["y_min"]\
                                          ,"z_max":z_far,"z_min":z_min_box}
-                perform_boolean_intersection(tier_2_cuts[0],tier_3_cut,tier_3_subdivision_level)
+                bops.perform_boolean_intersection(tier_2_cuts[0],tier_3_cut,tier_3_subdivision_level)
                 is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_3_cut,False)
                 if is_accepted_cut:
                     tier_3_cut.name = str.format("accepted_cut_{}", div_id)

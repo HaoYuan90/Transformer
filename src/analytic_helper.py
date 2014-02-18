@@ -8,7 +8,9 @@ DEPENDENCY : http://wiki.blender.org/index.php/Extensions:2.6/Py/Scripts/Mesh/Vo
 # Debug messages control
 DEBUG_ANALYTICS = False
 
-def analyse_volume_approximation(object, divisions, estimated_volume_ratios):
+def analyse_volume_approximation(object, divisions, estimated_volume_ratios, logger):
+    logger.add_analytic_log(object.name)
+    logger.add_analytic_log(str.format("Estimated volume: {}", estimated_volume_ratios))
     if DEBUG_ANALYTICS:
         volume_ratios = []
         pds = []
@@ -26,10 +28,10 @@ def analyse_volume_approximation(object, divisions, estimated_volume_ratios):
             volume_ratios.append(division['volume']/total_volume)
             division.select = False
         
+        """
         for i in range(0,len(estimated_volume_ratios)):
             pd = math.fabs((estimated_volume_ratios[i] - volume_ratios[i])/volume_ratios[i])
             pds.append(pd)
-        
-        print(str.format("Estimated volume: {}", estimated_volume_ratios))
-        print(str.format("Actual volume: {}", volume_ratios))
-        print(str.format("Percentage discrepancy: {}", pds))
+        """
+        logger.add_analytic_log(str.format("Actual volume: {}", volume_ratios))
+        logger.add_analytic_log(str.format("Percentage discrepancy: {}", pds))

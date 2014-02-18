@@ -2,6 +2,9 @@
 ## Eclipse
 #################
 
+# My own project, ignore logs
+*.txt
+
 .metadata
 bin/
 tmp/

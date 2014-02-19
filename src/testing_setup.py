@@ -10,12 +10,14 @@ exec(compile(open(cut_src_path).read(), "cut_src_path", 'exec'))
 driver_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_driver.py"
 exec(compile(open(driver_src_path).read(), "driver_src_path", 'exec'))
 
+cutting_main()
+
 picks = [0,0]
 cut_reqs = []
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
 cut_reqs.append({"volume":0.3,"aspect":(1,1,1)})
 
-cut_main(cut_reqs,picks)
+cutting_start(cut_reqs,picks)
 
 """
 
@@ -24,7 +26,7 @@ picks = [0,0]
 cut_reqs = []
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
 cut_reqs.append({"volume":0.3,"aspect":(1,1,1)})
-cut_main(cut_reqs,picks)
+cutting_main(cut_reqs,picks)
 
 
 """

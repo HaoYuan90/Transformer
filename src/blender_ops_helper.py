@@ -49,6 +49,16 @@ def copy_object(orig_obj, to_obj_name):
     return copy
 
 """
+Set object's origin to its center of mass
+"""
+def set_object_origin(obj):
+    # Set obj_to to be current active object
+    obj.select = True
+    bpy.context.scene.objects.active = obj
+    bpy.ops.object.origin_set(type = 'ORIGIN_CENTER_OF_MASS')
+    obj.select = False
+
+"""
 Perform blender's boolean operation
 obj_from is the object parameter in boolean operation
 obj_to is the object which operator is applied to

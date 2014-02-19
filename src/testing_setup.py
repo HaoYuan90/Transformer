@@ -5,7 +5,7 @@ import sys
 mypath = "C:\\Users\\Xiaopewpew\\Desktop\\GithubProjects\\Transformer\\src"
 sys.path.append(mypath)
 
-autocut_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_auto_cutting.py"
+autocut_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py"
 exec(compile(open(autocut_src_path).read(), "autocut_src_path", 'exec'))
 
 picks = [0,0]

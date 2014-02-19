@@ -18,10 +18,10 @@ autocut_main(cut_reqs,picks)
 """
 
 """
-picks = [2,2]
+picks = [0,0]
 cut_reqs = []
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
-cut_reqs.append({"volume":0.3,"aspect":(10,7,3)})
+cut_reqs.append({"volume":0.3,"aspect":(1,1,1)})
 autocut_main(cut_reqs,picks)
 
 

@@ -6,38 +6,15 @@ import bpy
 import bmesh
 
 import math
-import random
-import vector_helper as vector
 import arithmetic_helper as arith
 import analytic_helper as analysis
 import blender_ops_helper as bops
+import transformer_config as config
 
 from TransformerLogger import TransformerLogger
 
-"""
-Global constants
-"""
-# Floating point error tolerance
-fp_tolerance = 0.0001
-normal_tolerance = 0.03
-# Number of divisions 
-tier_1_divs = 20 #20
-tier_2_divs = 10
-tier_3_divs = 10
-# Deal with blender's bug with boolean operation, choose appropriate ones 
-tier_1_subdivision_level = 1
-tier_2_subdivision_level = 1
-tier_3_subdivision_level = 1
-# How accurate the accepted cuts are
-allowed_pd_volume = 0.1
-allowed_pd_aspect = 0.2
-mediocre_pd_cap = 0.8
-bad_pd_cap = 1.5
-
 # Logger
 logger = TransformerLogger()
-# Debug messages control
-DEBUG_MATCHING = True
 
 """
 Get a bunch of values from the boundbox of an object
@@ -108,7 +85,7 @@ def get_cut_surfaces_area(vertices,polygons,dim_string,near_plane,far_plane,inte
     near_threshold = near_plane + interval/10
     for face in polygons:
         # Facing towards positive axis
-        if math.fabs(face.normal[dim]-1)<= normal_tolerance:
+        if math.fabs(face.normal[dim]-1)<= config.normal_tolerance:
             average_plane = 0
             for vert in face.vertices:
                 average_plane += vertices[vert].co[dim]
@@ -116,7 +93,7 @@ def get_cut_surfaces_area(vertices,polygons,dim_string,near_plane,far_plane,inte
             if average_plane >= far_threshold:
                 area = area+face.area*(average_plane-near_plane)/interval
         # Facing towards negative axis
-        elif math.fabs(face.normal[dim]+1) <= normal_tolerance:
+        elif math.fabs(face.normal[dim]+1) <= config.normal_tolerance:
             average_plane = 0
             for vert in face.vertices:
                 average_plane += vertices[vert].co[dim]
@@ -155,12 +132,12 @@ Return BOOLEAN
 """
 def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_sym):
     # Matching volume 
-    if DEBUG_MATCHING:
+    if config.DEBUG_MATCHING:
         logger.add_matching_log("{} matching {}".format(pad_msg(div_id), div_id))
         logger.add_matching_log("{} volume req/act : {} / {}".format(pad_msg(div_id), req_volume_ratio, estimated_volume))
 
-    if not arith.percentage_discrepancy(estimated_volume, req_volume_ratio) <= allowed_pd_volume:
-        if DEBUG_MATCHING:
+    if not arith.percentage_discrepancy(estimated_volume, req_volume_ratio) <= config.allowed_pd_volume:
+        if config.DEBUG_MATCHING:
             logger.add_matching_log("{} rejected".format(pad_msg(div_id)))
             logger.add_matching_log("")
         cut['pd'] = -1
@@ -194,7 +171,7 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_
     configure_3.append(dim_x/dim_z)
     configure_3.append(dim_y/dim_z)
     
-    if DEBUG_MATCHING:
+    if config.DEBUG_MATCHING:
         logger.add_matching_log("{} aspect ratio req : {}".format(pad_msg(div_id), req_aspects))
         logger.add_matching_log("{} aspect ratio 1/2/3 : {} / {} / {}".format(pad_msg(div_id), configure_1, configure_2, configure_3))
     
@@ -208,50 +185,35 @@ def verify_cut(div_id, req_volume_ratio, req_aspects, estimated_volume, cut, is_
     pd = min(pds)
     cut['pd'] = pd
     
-    if (arith.percentage_discrepancy(configure_1[0], req_aspects[0]) <= allowed_pd_aspect \
-    and arith.percentage_discrepancy(configure_1[1], req_aspects[1]) <= allowed_pd_aspect) \
-    or (arith.percentage_discrepancy(configure_1[1], req_aspects[0]) <= allowed_pd_aspect \
-    and arith.percentage_discrepancy(configure_1[0], req_aspects[1]) <= allowed_pd_aspect):
+    if (arith.percentage_discrepancy(configure_1[0], req_aspects[0]) <= config.allowed_pd_aspect \
+    and arith.percentage_discrepancy(configure_1[1], req_aspects[1]) <= config.allowed_pd_aspect) \
+    or (arith.percentage_discrepancy(configure_1[1], req_aspects[0]) <= config.allowed_pd_aspect \
+    and arith.percentage_discrepancy(configure_1[0], req_aspects[1]) <= config.allowed_pd_aspect):
         aspect_ratio_satisfied = True
     
-    if (arith.percentage_discrepancy(configure_2[0], req_aspects[0]) <= allowed_pd_aspect \
-    and arith.percentage_discrepancy(configure_2[1], req_aspects[1]) <= allowed_pd_aspect) \
-    or (arith.percentage_discrepancy(configure_2[1], req_aspects[0]) <= allowed_pd_aspect \
-    and arith.percentage_discrepancy(configure_2[0], req_aspects[1]) <= allowed_pd_aspect):
+    if (arith.percentage_discrepancy(configure_2[0], req_aspects[0]) <= config.allowed_pd_aspect \
+    and arith.percentage_discrepancy(configure_2[1], req_aspects[1]) <= config.allowed_pd_aspect) \
+    or (arith.percentage_discrepancy(configure_2[1], req_aspects[0]) <= config.allowed_pd_aspect \
+    and arith.percentage_discrepancy(configure_2[0], req_aspects[1]) <= config.allowed_pd_aspect):
         aspect_ratio_satisfied = True
         
-    if (arith.percentage_discrepancy(configure_3[0], req_aspects[0]) <= allowed_pd_aspect \
-    and arith.percentage_discrepancy(configure_3[1], req_aspects[1]) <= allowed_pd_aspect) \
-    or (arith.percentage_discrepancy(configure_3[1], req_aspects[0]) <= allowed_pd_aspect \
-    and arith.percentage_discrepancy(configure_3[0], req_aspects[1]) <= allowed_pd_aspect):
+    if (arith.percentage_discrepancy(configure_3[0], req_aspects[0]) <= config.allowed_pd_aspect \
+    and arith.percentage_discrepancy(configure_3[1], req_aspects[1]) <= config.allowed_pd_aspect) \
+    or (arith.percentage_discrepancy(configure_3[1], req_aspects[0]) <= config.allowed_pd_aspect \
+    and arith.percentage_discrepancy(configure_3[0], req_aspects[1]) <= config.allowed_pd_aspect):
         aspect_ratio_satisfied = True
     
     if not aspect_ratio_satisfied:
-        if DEBUG_MATCHING:
+        if config.DEBUG_MATCHING:
             logger.add_matching_log("{} rejected".format(pad_msg(div_id)))
             logger.add_matching_log("")
         return False
     
-    if DEBUG_MATCHING:
+    if config.DEBUG_MATCHING:
         logger.add_matching_log("{} accepted".format(pad_msg(div_id)))
         logger.add_matching_log("")
         
     return True
-
-"""
-Remove all objects created
-and flush all associated meshes
-"""
-def cut_cleanup(): 
-    objects = bpy.data.objects
-    for obj in objects:
-        obj.select = False
-        if "division" in obj.name or "cut" in obj.name or "assist" in obj.name:
-            obj.select = True
-    bpy.ops.object.delete()
-    for mesh in bpy.data.meshes:
-        if "division" in mesh.name or "cut" in mesh.name or "assist" in mesh.name:
-            bpy.data.meshes.remove(mesh)
             
 """
 Remove all intermediate objects created
@@ -297,208 +259,12 @@ def tier_end_cleanup():
     for mesh in bpy.data.meshes:
         if mesh.name in mesh_to_remove:
             bpy.data.meshes.remove(mesh)
-
-
-def perform_best_cut(obj):
-    objects = bpy.data.objects
-    
-    # Find the best cut
-    best_cut = None
-    best_pd = 0
-    for cut in objects:
-        cut.select = False
-        if "cut" in cut.name:
-            if best_cut == None:
-                best_cut = cut
-                best_pd = cut["pd"]
-            elif best_pd > cut["pd"]:
-                best_cut = cut
-                best_pd = cut["pd"]
-    
-    perform_specific_cut(obj,best_cut.name)
-    
-def perform_picky_cut(obj,pick_range):
-    objects = bpy.data.objects
-    
-    # Find the cuts in range
-    candidates = []
-    for cut in objects:
-        cut.select = False
-        if "cut" in cut.name:
-            if math.floor(cut["pd"]*100) in pick_range:
-                candidates.append(cut)
-    
-    chosen_cut = None
-    if len(candidates) >= 1:
-        pick_id = random.randint(0,len(candidates)-1)
-        chosen_cut =candidates[pick_id]
-    else:
-        perform_best_cut(obj)
-        return
-    
-    perform_specific_cut(obj,chosen_cut.name)
-    
-"""
-Do specific cut with input name
-"""
-def perform_specific_cut(obj,input_name):
-    objects = bpy.data.objects
-    chosen_name = input_name
-    if "neg" in chosen_name or "pos" in chosen_name:
-        chosen_name = chosen_name[0:-4]
-    
-    pending_cuts = []
-    mesh_to_remove = []
-    for cut in objects:
-        cut.select = False
-        if "cut" in cut.name:
-            if "neg" in cut.name or "pos" in cut.name:
-                if chosen_name == cut.name[0:-4]:
-                    pending_cuts.append(cut)
-                else:
-                    mesh_to_remove.append(cut.name)
-                    cut.select = True
-            else:
-                if chosen_name == cut.name:
-                    pending_cuts.append(cut)
-                else:
-                    mesh_to_remove.append(cut.name)
-                    cut.select = True
             
-    bpy.ops.object.delete()
-    for mesh in bpy.data.meshes:
-        if mesh.name in mesh_to_remove:
-            bpy.data.meshes.remove(mesh)
-    
-    for cut in pending_cuts:
-        x_max = cut["cut_box"]["x_max"]
-        x_min = cut["cut_box"]["x_min"]
-        y_max = cut["cut_box"]["y_max"]
-        y_min = cut["cut_box"]["y_min"]
-        z_max = cut["cut_box"]["z_max"]
-        z_min = cut["cut_box"]["z_min"]
-        assist = bops.create_cuboid(bops.generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
-        div_level = tier_1_subdivision_level
-        i = cut.name.count("_")
-        if i>= 4:
-            div_level = tier_3_subdivision_level
-        elif i == 3:
-            div_level = tier_2_subdivision_level
-        else:
-            div_level = tier_1_subdivision_level
-        bops.perform_boolean_difference(assist,obj,div_level)
-        
-    intermediate_cleanup()
-
-def rename_cuts(name):
-    objects = bpy.data.objects
-    for cut in objects:
-        if "cut" in cut.name:
-            if "pos" in cut.name:
-                new_name = str.format("{}_pos", name)
-                logger.add_choice_log(str.format("{} is renamed as {}",cut.name,new_name))
-                cut.name = new_name
-                cut.data.name = new_name
-            elif "neg" in cut.name:
-                new_name = str.format("{}_neg", name)
-                logger.add_choice_log(str.format("{} is renamed as {}",cut.name,new_name))
-                cut.name = new_name
-                cut.data.name = new_name
-            else:
-                logger.add_choice_log(str.format("{} is renamed as {}",cut.name,name))
-                cut.name = name
-                cut.data.name = name
-    logger.add_choice_log("")
-    
-def cut_main(cut_reqs,picks):
-    volume = 1.0
-    i = 0
-    obj = bpy.context.active_object
-    logger.log_start()
-    
-    for cut_req in cut_reqs:
-        req_volume_ratio = cut_req["volume"]/volume
-        req_aspect_ratio = cut_req["aspect"]
-        req_aspects = []
-        req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
-        req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
-        
-        tier_1_matching(obj, req_volume_ratio, req_aspects)
-        if picks[i] == 0:
-            perform_best_cut(obj)
-        elif picks[i] == 1:
-            perform_picky_cut(obj,range(math.floor(allowed_pd_aspect*100),math.floor(mediocre_pd_cap*100)))
-        else:
-            perform_picky_cut(obj,range(math.floor(mediocre_pd_cap*100),math.floor(bad_pd_cap*100)))
-            
-        rename_cuts(str.format("component_{}", i+1))
-        
-        # TODO: use actual volume instead of req
-        volume = volume-req_volume_ratio
-        i += 1
-        
-        # Change subdivision level to avoid a new cut with an edge landing right on the edge of an old cut
-        global tier_1_divs
-        global tier_2_divs
-        global tier_3_divs
-        tier_1_divs = arith.next_smallest_prime(tier_1_divs)
-        tier_2_divs = arith.next_smallest_prime(tier_2_divs)
-        tier_3_divs = arith.next_smallest_prime(tier_3_divs)
-        
-        logger.add_matching_separation()
-        
-    
-def cut_debug_tree_main(cut_req,cut_name,num):
-    logger.log_start()
-    global tier_1_divs
-    global tier_2_divs
-    global tier_3_divs
-    for i in range(0,num):
-        tier_1_divs = arith.next_smallest_prime(tier_1_divs)
-        tier_2_divs = arith.next_smallest_prime(tier_2_divs)
-        tier_3_divs = arith.next_smallest_prime(tier_3_divs)
-    logger.add_matching_log(str.format("Level of divisions are {},{},{}", tier_1_divs,tier_2_divs,tier_3_divs))    
-    obj = bpy.context.active_object
-    
-    req_volume_ratio = cut_req["volume"]
-    req_aspect_ratio = cut_req["aspect"]
-    req_aspects = []
-    req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
-    req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
-    
+def cutting_start(obj,req_volume_ratio,req_aspects):
     tier_1_matching(obj, req_volume_ratio, req_aspects)
-    perform_specific_cut(obj,cut_name)
-        
-    rename_cuts(str.format("component_{}", 1))
 
-    logger.add_matching_separation()
-
-    
-"""
-Perform only one cutting without separation for debugging purpose
-"""
-def cut_debug_main(cut_req,num):
-    logger.log_start()
-    global tier_1_divs
-    global tier_2_divs
-    global tier_3_divs
-    for i in range(0,num):
-        tier_1_divs = arith.next_smallest_prime(tier_1_divs)
-        tier_2_divs = arith.next_smallest_prime(tier_2_divs)
-        tier_3_divs = arith.next_smallest_prime(tier_3_divs)
-    logger.add_matching_log(str.format("Level of divisions are {},{},{}", tier_1_divs,tier_2_divs,tier_3_divs))
-    obj = bpy.context.active_object
-    
-    req_volume_ratio = cut_req["volume"]
-    req_aspect_ratio = cut_req["aspect"]
-    req_aspects = []
-    req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
-    req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
-    
-    tier_1_matching(obj, req_volume_ratio, req_aspects)
-    
 def tier_1_matching(obj, req_volume_ratio, req_aspects):
-    params = process_boundbox([obj.bound_box],tier_1_divs)
+    params = process_boundbox([obj.bound_box],config.tier_1_divs)
     y_min = params["y_min"]
     y_interval = params["y_interval"]
     x_max_box = params["x_max_box"]
@@ -512,7 +278,7 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
     obj.select = False
     divisions = []
     cutsurface_areas = []
-    for i in range(0,tier_1_divs):  
+    for i in range(0,config.tier_1_divs):  
         y_near = this_y
         this_y = this_y + y_interval
         y_far = this_y
@@ -520,12 +286,12 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
         cuboid = None
         if i == 0:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
-        elif i == tier_1_divs - 1:
+        elif i == config.tier_1_divs - 1:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_near,z_max_box,z_min_box),name)
         else:  
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_near,z_max_box,z_min_box),name)
         
-        bops.perform_boolean_intersection(obj,cuboid,tier_1_subdivision_level)
+        bops.perform_boolean_intersection(obj,cuboid,config.tier_1_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"y",y_near,y_far,y_interval))
     
@@ -535,23 +301,23 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
     
     intermediate_cleanup()
     
-    if DEBUG_MATCHING:
-        logger.add_matching_log("**************** Tier 1 matching starts")
+    if config.DEBUG_MATCHING:
+        logger.add_matching_log("Tier 1 matching starts")
         logger.add_matching_log("")
     # Find a cut with volume just bigger than required volume
     accumulated_volume_ratio = 0
     cut_id = 1
-    for i in range(0,tier_1_divs-1):
+    for i in range(0,config.tier_1_divs-1):
         div_id = str.format("{}", cut_id)
         accumulated_volume_ratio += volume_ratios[i]
         y_far = y_min + (i+1)*y_interval
-        if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
+        if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= config.allowed_pd_volume:
             name = str.format("temp_cut_{}", cut_id)
             tier_1_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
             tier_1_cut["cut_box"] = {"x_max":x_max_box,"x_min":x_min_box\
                                      ,"y_max":y_far,"y_min":y_min_box\
                                      ,"z_max":z_max_box,"z_min":z_min_box}
-            bops.perform_boolean_intersection(obj,tier_1_cut,tier_1_subdivision_level)
+            bops.perform_boolean_intersection(obj,tier_1_cut,config.tier_1_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_1_cut,False)
             if is_accepted_cut:
                 tier_1_cut.name = str.format("accepted_cut_{}", cut_id)
@@ -564,12 +330,12 @@ def tier_1_matching(obj, req_volume_ratio, req_aspects):
         
     #tier_end_cleanup()
            
-    if DEBUG_MATCHING:     
-        logger.add_matching_log("**************** Tier 1 matching ends")
+    if config.DEBUG_MATCHING:     
+        logger.add_matching_log("Tier 1 matching ends")
         logger.add_matching_log("")
     
 def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
-    params = process_boundbox([tier_1_cut.bound_box],tier_2_divs)
+    params = process_boundbox([tier_1_cut.bound_box],config.tier_2_divs)
     x_min = params["x_min"]
     x_max = params["x_max"]
     x_interval = params["x_interval"]
@@ -584,7 +350,7 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     tier_1_cut.select = False
     divisions = []
     cutsurface_areas = []
-    for i in range(0,tier_2_divs):  
+    for i in range(0,config.tier_2_divs):  
         x_near = this_x
         this_x = this_x + x_interval
         x_far = this_x
@@ -592,12 +358,12 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         cuboid = None
         if i == 0:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
-        elif i == tier_2_divs -1:
+        elif i == config.tier_2_divs -1:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         else:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        bops.perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
+        bops.perform_boolean_intersection(tier_1_cut,cuboid,config.tier_2_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
     
@@ -607,22 +373,22 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     
     intermediate_cleanup()
 
-    if DEBUG_MATCHING:
-        logger.add_matching_log("******** Tier 2 sym matching of div {}".format(tier_1_id))
+    if config.DEBUG_MATCHING:
+        logger.add_matching_log("********** Tier 2 sym matching of div {}".format(tier_1_id))
         logger.add_matching_log("")
         
     # Find a cut with volume just bigger than required volume (symmetric case)
     accumulated_volume_ratio = 0
     cut_id = 1
-    for i in range(0,math.floor((tier_2_divs+1)/2)-1):  
+    for i in range(0,math.floor((config.tier_2_divs+1)/2)-1):  
         accumulated_volume_ratio += volume_ratios[i]
-        accumulated_volume_ratio += volume_ratios[tier_2_divs-1-i]
+        accumulated_volume_ratio += volume_ratios[config.tier_2_divs-1-i]
         div_id = str.format("{}_{}", tier_1_id, cut_id)
         x_near = x_min + (i+1)*x_interval
         x_far = x_max - (i+1)*x_interval
         x_dim = (x_max-x_min)-(x_far-x_near)
         
-        if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
+        if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= config.allowed_pd_volume:
             name = str.format("temp_cut_{}", div_id)
             pos_name = str.format("{}_pos",name)
             neg_name = str.format("{}_neg",name)
@@ -634,8 +400,8 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
             tier_2_cut_neg["cut_box"] = {"x_max":x_near,"x_min":x_min_box\
                                          ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
                                          ,"z_max":z_max_box,"z_min":z_min_box}
-            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut_pos,tier_2_subdivision_level)
-            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut_neg,tier_2_subdivision_level)
+            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut_pos,config.tier_2_subdivision_level)
+            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut_neg,config.tier_2_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_2_cut_pos,True)
             tier_2_cut_neg['pd'] =tier_2_cut_pos['pd']
             if is_accepted_cut:
@@ -653,12 +419,12 @@ def tier_2_matching_sym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         
     tier_end_cleanup()
                 
-    if DEBUG_MATCHING:     
-        logger.add_matching_log("******** Tier 2 sym matching of div {} ends".format(tier_1_id))
+    if config.DEBUG_MATCHING:     
+        logger.add_matching_log("********** Tier 2 sym matching of div {} ends".format(tier_1_id))
         logger.add_matching_log("")
 
 def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
-    params = process_boundbox([tier_1_cut.bound_box],tier_2_divs)
+    params = process_boundbox([tier_1_cut.bound_box],config.tier_2_divs)
     x_min = params["x_min"]
     x_max = params["x_max"]
     x_interval = params["x_interval"]
@@ -673,7 +439,7 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     tier_1_cut.select = False
     divisions = []
     cutsurface_areas = []
-    for i in range(0,tier_2_divs):  
+    for i in range(0,config.tier_2_divs):  
         x_near = this_x
         this_x = this_x + x_interval
         x_far = this_x
@@ -681,12 +447,12 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         cuboid = None
         if i == 0:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_min_box,y_max_box,y_min_box,z_max_box,z_min_box),name)
-        elif i == tier_2_divs -1:
+        elif i == config.tier_2_divs -1:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         else:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
         
-        bops.perform_boolean_intersection(tier_1_cut,cuboid,tier_2_subdivision_level)
+        bops.perform_boolean_intersection(tier_1_cut,cuboid,config.tier_2_subdivision_level)
         divisions.append(cuboid)
         cutsurface_areas.append(get_cut_surfaces_area(cuboid.data.vertices,cuboid.data.polygons,"x",x_near,x_far,x_interval))
         
@@ -696,34 +462,34 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
     
     intermediate_cleanup()
     
-    if DEBUG_MATCHING:
-        logger.add_matching_log("******** Tier 2 asym matching of div {}".format(tier_1_id))
+    if config.DEBUG_MATCHING:
+        logger.add_matching_log("********** Tier 2 asym matching of div {}".format(tier_1_id))
         logger.add_matching_log("")
         
     # Find a cut with volume just bigger than required volume (symmetric case)
     accumulated_volume_ratio = 0
     cut_id = 1
-    for i in reversed(range(1,math.floor((tier_2_divs+1)/2))): 
+    for i in reversed(range(1,math.floor((config.tier_2_divs+1)/2))): 
         # Odd number of divisions, first volume is the one piece in the center
-        if tier_2_divs%2 == 1 and i == math.floor((tier_2_divs+1)/2)-1:
+        if config.tier_2_divs%2 == 1 and i == math.floor((config.tier_2_divs+1)/2)-1:
             accumulated_volume_ratio += volume_ratios[i]
         # Otherwise add the 2 pieces in the center
         else:
             accumulated_volume_ratio += volume_ratios[i]
-            accumulated_volume_ratio += volume_ratios[tier_2_divs-1-i]
+            accumulated_volume_ratio += volume_ratios[config.tier_2_divs-1-i]
         
         div_id = str.format("{}_{}", tier_1_id, cut_id)
         x_near = x_min + i*x_interval
         x_far = x_max - i*x_interval
         x_dim = x_far-x_near
         
-        if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
+        if accumulated_volume_ratio > req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= config.allowed_pd_volume:
             name = str.format("temp_cut_{}", div_id)
             tier_2_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_far,x_near,y_max_box,y_min_box,z_max_box,z_min_box),name)
             tier_2_cut["cut_box"] = {"x_max":x_far,"x_min":x_near\
                                      ,"y_max":tier_1_cut["cut_box"]["y_max"],"y_min":tier_1_cut["cut_box"]["y_min"]\
                                      ,"z_max":z_max_box,"z_min":z_min_box}
-            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut,tier_2_subdivision_level)
+            bops.perform_boolean_intersection(tier_1_cut,tier_2_cut,config.tier_2_subdivision_level)
             is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_2_cut,False)
             if is_accepted_cut:
                 tier_2_cut.name = str.format("accepted_cut_{}", div_id)
@@ -736,8 +502,8 @@ def tier_2_matching_asym(tier_1_id, tier_1_cut, req_volume_ratio, req_aspects):
         
     tier_end_cleanup()
                 
-    if DEBUG_MATCHING:     
-        logger.add_matching_log("******** Tier 2 asym matching of div {} ends".format(tier_1_id))
+    if config.DEBUG_MATCHING:     
+        logger.add_matching_log("********** Tier 2 asym matching of div {} ends".format(tier_1_id))
         logger.add_matching_log("")
 
 """
@@ -747,7 +513,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
     boundboxes = []
     for tier_2_cut in tier_2_cuts:
         boundboxes.append(tier_2_cut.bound_box)
-    params = process_boundbox(boundboxes,tier_3_divs)
+    params = process_boundbox(boundboxes,config.tier_3_divs)
     z_min = params["z_min"]
     z_interval = params["z_interval"]
     x_max_box = params["x_max_box"]
@@ -766,7 +532,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
         return
     divisions = []
     cutsurface_areas = []
-    for i in range(0,tier_3_divs):  
+    for i in range(0,config.tier_3_divs):  
         z_near = this_z
         this_z = this_z + z_interval
         z_far = this_z
@@ -774,12 +540,12 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
         cuboid = None
         if i == 0:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_min_box),name)
-        elif i == tier_3_divs - 1:
+        elif i == config.tier_3_divs - 1:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_max_box,z_near),name)
         else:
             cuboid = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_max_box,y_min_box,z_far,z_near),name)
         
-        bops.perform_boolean_intersection(tier_2_cuts[0],cuboid,tier_3_subdivision_level)
+        bops.perform_boolean_intersection(tier_2_cuts[0],cuboid,config.tier_3_subdivision_level)
        
         divisions.append(cuboid)
                     
@@ -791,8 +557,8 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
     
     intermediate_cleanup()
     
-    if DEBUG_MATCHING:
-        logger.add_matching_log("Tier 3 matching of div {}_{}".format(tier_1_id, tier_2_id))
+    if config.DEBUG_MATCHING:
+        logger.add_matching_log("******************** Tier 3 matching of div {}_{}".format(tier_1_id, tier_2_id))
         logger.add_matching_log("")
     
     # Find acceptable cut
@@ -800,12 +566,12 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
     z_far = z_near
     accumulated_volume_ratio = 0
     cut_id = 1
-    for i in range(0,tier_3_divs-1):  
+    for i in range(0,config.tier_3_divs-1):  
         accumulated_volume_ratio += volume_ratios[i]   
         div_id = str.format("{}_{}_{}",tier_1_id,tier_2_id,cut_id) 
         z_far = z_near + (i+1)*z_interval 
         
-        if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= allowed_pd_volume:
+        if arith.percentage_discrepancy(accumulated_volume_ratio, req_volume_ratio) <= config.allowed_pd_volume:
             name = str.format("temp_cut_{}", div_id)
             if len(tier_2_cuts) == 2:
                 pos_name = str.format("{}_pos",name)
@@ -819,8 +585,8 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                 tier_3_cut_neg["cut_box"] = {"x_max":tier_2_cuts[1]["cut_box"]["x_max"],"x_min":tier_2_cuts[1]["cut_box"]["x_min"]\
                                              ,"y_max":tier_2_cuts[1]["cut_box"]["y_max"],"y_min":tier_2_cuts[1]["cut_box"]["y_min"]\
                                              ,"z_max":z_far,"z_min":z_min_box}
-                bops.perform_boolean_intersection(tier_2_cuts[0],tier_3_cut_pos,tier_3_subdivision_level)
-                bops.perform_boolean_intersection(tier_2_cuts[1],tier_3_cut_neg,tier_3_subdivision_level)
+                bops.perform_boolean_intersection(tier_2_cuts[0],tier_3_cut_pos,config.tier_3_subdivision_level)
+                bops.perform_boolean_intersection(tier_2_cuts[1],tier_3_cut_neg,config.tier_3_subdivision_level)
                 is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_3_cut_pos,True)
                 tier_3_cut_neg['pd'] =tier_3_cut_pos['pd']
                 if is_accepted_cut:
@@ -838,7 +604,7 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                 tier_3_cut["cut_box"] = {"x_max":tier_2_cuts[0]["cut_box"]["x_max"],"x_min":tier_2_cuts[0]["cut_box"]["x_min"]\
                                          ,"y_max":tier_2_cuts[0]["cut_box"]["y_max"],"y_min":tier_2_cuts[0]["cut_box"]["y_min"]\
                                          ,"z_max":z_far,"z_min":z_min_box}
-                bops.perform_boolean_intersection(tier_2_cuts[0],tier_3_cut,tier_3_subdivision_level)
+                bops.perform_boolean_intersection(tier_2_cuts[0],tier_3_cut,config.tier_3_subdivision_level)
                 is_accepted_cut = verify_cut(div_id,req_volume_ratio,req_aspects,accumulated_volume_ratio,tier_3_cut,False)
                 if is_accepted_cut:
                     tier_3_cut.name = str.format("accepted_cut_{}", div_id)
@@ -850,8 +616,8 @@ def tier_3_matching(tier_1_id, tier_2_id, tier_2_cuts, req_volume_ratio, req_asp
                 logger.add_error_log(str.format("Invalid parameter to tier_3_cut for {}",tier_2_id))
         cut_id += 1
                 
-    if DEBUG_MATCHING:     
-        logger.add_matching_log("Tier 3 matching of div {}_{} ends".format(tier_1_id, tier_2_id))
+    if config.DEBUG_MATCHING:     
+        logger.add_matching_log("******************** Tier 3 matching of div {}_{} ends".format(tier_1_id, tier_2_id))
         logger.add_matching_log("")
 
             

@@ -5,15 +5,17 @@ import sys
 mypath = "C:\\Users\\Xiaopewpew\\Desktop\\GithubProjects\\Transformer\\src"
 sys.path.append(mypath)
 
-autocut_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py"
-exec(compile(open(autocut_src_path).read(), "autocut_src_path", 'exec'))
+cut_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_cutting.py"
+exec(compile(open(cut_src_path).read(), "cut_src_path", 'exec'))
+driver_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/transformer_driver.py"
+exec(compile(open(driver_src_path).read(), "driver_src_path", 'exec'))
 
 picks = [0,0]
 cut_reqs = []
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
 cut_reqs.append({"volume":0.3,"aspect":(1,1,1)})
 
-autocut_main(cut_reqs,picks)
+cut_main(cut_reqs,picks)
 
 """
 
@@ -22,7 +24,7 @@ picks = [0,0]
 cut_reqs = []
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1)})
 cut_reqs.append({"volume":0.3,"aspect":(1,1,1)})
-autocut_main(cut_reqs,picks)
+cut_main(cut_reqs,picks)
 
 
 """

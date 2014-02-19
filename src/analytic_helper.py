@@ -1,17 +1,16 @@
 import bpy
 import math
 
+import transformer_config as config
+
 """
 DEPENDENCY : http://wiki.blender.org/index.php/Extensions:2.6/Py/Scripts/Mesh/VolumeTools
 """
 
-# Debug messages control
-DEBUG_ANALYTICS = False
-
 def analyse_volume_approximation(object, divisions, estimated_volume_ratios, logger):
     logger.add_analytic_log(object.name)
     logger.add_analytic_log(str.format("Estimated volume: {}", estimated_volume_ratios))
-    if DEBUG_ANALYTICS:
+    if config.DEBUG_ANALYTICS:
         volume_ratios = []
         pds = []
         # Set cuboid to be current active object

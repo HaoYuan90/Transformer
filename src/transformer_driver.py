@@ -10,6 +10,7 @@ import random
 import blender_ops_helper as bops
 import transformer_config as config
 import transformer_cutting as cutter
+import vector_helper as vec
 
 from TransformerLogger import TransformerLogger
 
@@ -170,7 +171,10 @@ def process_object(obj,name):
     obj.name = name
     obj.data.name = name
     bops.set_object_origin(obj)
-    
+
+"""
+Position center of object at center of bone
+"""
 def position_objects_to_bones(bones,bone_prefix):
     for bone in bones:
         pos = (bone.head_local + bone.tail_local)/2
@@ -179,6 +183,63 @@ def position_objects_to_bones(bones,bone_prefix):
             obj.location = pos
         else:
             logger.add_error_log("Cant find object at position_objects_to_bones")
+
+"""
+Get euler rotation data for the bone
+"""    
+def get_euler_rotation(bone):
+    bone_vector = bone.head_local - bone.tail_local
+    
+    ny_vector = (0,1,0)
+    rotation_axis = vec.veccross(bone_vector, ny_vector)
+    rotation_angle = vec.vecdot(bone_vector, ny_vector)/vec.length(bone_vector)
+    angle_rad = math.acos(rotation_angle)
+    
+    """
+    angle_deg = math.degrees(angle_rad)
+    print(rotation_axis)
+    print(angle_deg)
+    """
+    
+    rotation_axis = vec.vecnorm(rotation_axis)
+    
+    s = math.sin(angle_rad)
+    c = math.cos(angle_rad)
+    t = 1-c
+    
+    x_rotation = 0
+    y_rotation = 0
+    z_rotation = 0
+    # North pole singularity
+    if (rotation_axis[0]*rotation_axis[1]*t + rotation_axis[2]*s) > 0.998:
+        x_rotation = 0
+        y_rotation = 2*math.atan2(rotation_axis[0]*math.sin(angle_rad/2),math.cos(angle_rad/2))
+        z_rotation = -math.pi/2
+    # South pole singularity
+    elif (rotation_axis[0]*rotation_axis[1]*t + rotation_axis[2]*s) < -0.998:
+        x_rotation = 0
+        y_rotation = -2*math.atan2(rotation_axis[0]*math.sin(angle_rad/2),math.cos(angle_rad/2))
+        z_rotation = math.pi/2
+    else:
+        x_rotation = -math.atan2(rotation_axis[0] * s - rotation_axis[1] * rotation_axis[2] * t , 1 - (rotation_axis[0]*rotation_axis[0] + rotation_axis[2]*rotation_axis[2]) * t)
+        y_rotation = math.atan2(rotation_axis[1] * s- rotation_axis[0] * rotation_axis[2] * t , 1 - (rotation_axis[1]*rotation_axis[1]+ rotation_axis[2]*rotation_axis[2] ) * t)
+        z_rotation = -math.asin(rotation_axis[0] * rotation_axis[1] * t + rotation_axis[2] * s)
+    
+    return (x_rotation,y_rotation,z_rotation)
+
+"""
+Align rotation of object with rotation of  bone
+"""
+def align_objects_to_bones(bones,bone_prefix):
+    for bone in bones:
+        obj = bpy.data.objects[bone.name.replace(bone_prefix,'')]
+        if obj != None:
+            rotation = get_euler_rotation(bone)
+            obj.rotation_euler.x = rotation[0]
+            obj.rotation_euler.y = rotation[1]
+            obj.rotation_euler.z = rotation[2]
+        else:
+            logger.add_error_log("Cant find object at align_objects_to_bones")
     
 """
 Sequence: 
@@ -241,8 +302,9 @@ def cutting_main(picks = [0,0],armature_name = "Armature",object_name = "Cube",b
 
     cut_reqs = []
     for bone in sequence:
+        # handle symmetric bones
         if "component_volume" in bone:
-            cut_reqs.append({"volume":bone["component_volume"],"aspect":bone["component_aspect"],"name":bone.name.replace(bone_prefix,'')})
+            cut_reqs.append({"volume":bone["component_volume"],"aspect":bone["component_aspect"],"name":bone.name.replace(bone_prefix,''),"is_sym":False})
         elif sequence.index(bone) != len(sequence)-1:
             logger.add_error_log("Bones with no cutting reqs must be the last bone in the tree for testing")
             return
@@ -254,6 +316,7 @@ def cutting_main(picks = [0,0],armature_name = "Armature",object_name = "Cube",b
     
     # Put objects in right places
     position_objects_to_bones(sequence,bone_prefix)
+    align_objects_to_bones(sequence,bone_prefix)
         
 def cutting_start(obj,cut_reqs,picks):
     volume = 1.0
@@ -261,12 +324,13 @@ def cutting_start(obj,cut_reqs,picks):
     for cut_req in cut_reqs:
         req_volume_ratio = cut_req["volume"]/volume
         req_aspect_ratio = cut_req["aspect"]
+        req_is_sym = cut_req["is_sym"]
         req_aspects = []
         req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
         req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
         logger.add_matching_log(str.format("Level of divisions are {},{},{}", config.tier_1_divs,config.tier_2_divs,config.tier_3_divs))
         
-        cutter.cutting_start(obj, req_volume_ratio, req_aspects)
+        cutter.cutting_start(obj, req_volume_ratio, req_aspects, req_is_sym)
         if picks[i] == 0:
             perform_best_cut(obj)
         elif picks[i] == 1:
@@ -279,7 +343,7 @@ def cutting_start(obj,cut_reqs,picks):
         else:
             process_cutting_results(str.format("component_{}", i+1))
         
-        # TODO: use actual volume instead of req
+        # TODO: deal with sym and use actual volume instead of req
         volume = volume-req_volume_ratio
         i += 1
         config.next_subdivision_level()
@@ -288,7 +352,10 @@ def cutting_start(obj,cut_reqs,picks):
 def cutting_debug(cut_reqs,picks,obj = bpy.context.active_object):
     logger.log_start()
     cutting_start(obj,cut_reqs,picks)
-    
+
+"""
+Debug certain cut of the tree, not really useful
+"""
 def cutting_debug_tree(cut_reqs,cut_name,num,obj = bpy.context.active_object):
     logger.log_start()
     volume = 1.0
@@ -296,6 +363,7 @@ def cutting_debug_tree(cut_reqs,cut_name,num,obj = bpy.context.active_object):
     for cut_req in cut_reqs:
         req_volume_ratio = cut_req["volume"]/volume
         req_aspect_ratio = cut_req["aspect"]
+        req_is_sym = cut_req["is_sym"]
         req_aspects = []
         req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
         req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
@@ -303,12 +371,12 @@ def cutting_debug_tree(cut_reqs,cut_name,num,obj = bpy.context.active_object):
         if i == num:
             logger.add_matching_log(str.format("Level of divisions are {},{},{}", config.tier_1_divs,config.tier_2_divs,config.tier_3_divs))
             
-            cutter.cutting_start(obj, req_volume_ratio, req_aspects)
+            cutter.cutting_start(obj, req_volume_ratio, req_aspects, req_is_sym)
             perform_specific_cut(obj,cut_name)
                 
             process_cutting_results(str.format("component_{}", i+1))
             break
-        
+        # TODO: deal with sym and use actual volume
         volume = volume-req_volume_ratio
         i += 1
         config.next_subdivision_level()
@@ -316,19 +384,20 @@ def cutting_debug_tree(cut_reqs,cut_name,num,obj = bpy.context.active_object):
 """
 Perform only one cutting without separation for debugging purpose
 """
-def cutting_debug_1p(cut_req,num,obj = bpy.context.active_object):
+def cutting_debug_1p(cut_req, num, obj = bpy.context.active_object):
     logger.log_start()
     for i in range(0,num):
         config.next_subdivision_level()
     
     req_volume_ratio = cut_req["volume"]
     req_aspect_ratio = cut_req["aspect"]
+    req_is_sym = cut_req["is_sym"]
     req_aspects = []
     req_aspects.append(req_aspect_ratio[0]/req_aspect_ratio[1])
     req_aspects.append(req_aspect_ratio[2]/req_aspect_ratio[1])
     
     logger.add_matching_log(str.format("Level of divisions are {},{},{}", config.tier_1_divs,config.tier_2_divs,config.tier_3_divs))
     
-    cutter.cutting_start(obj, req_volume_ratio, req_aspects)
+    cutter.cutting_start(obj, req_volume_ratio, req_aspects, req_is_sym)
             
             

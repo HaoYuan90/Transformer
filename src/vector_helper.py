@@ -5,19 +5,15 @@ import math
 """
 """ Vector addition """
 def vecadd(a, b):
-    return [a[0] - b[0], a[1] - b[1], a[2] + b[2]]
+    return (a[0] - b[0], a[1] - b[1], a[2] + b[2])
 
 """ Vector substration """
 def vecsub(a, b):
-    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 """ Vector crossproduct """
 def veccross(x, y):
-    v = [0, 0, 0]
-    v[0] = x[1]*y[2] - x[2]*y[1]
-    v[1] = x[2]*y[0] - x[0]*y[2]
-    v[2] = x[0]*y[1] - x[1]*y[0]
-    return v
+    return (x[1]*y[2] - x[2]*y[1],x[2]*y[0] - x[0]*y[2],x[0]*y[1] - x[1]*y[0])
 
 """ Vector dotproduct """
 def vecdot(x, y):
@@ -29,7 +25,14 @@ def length(v):
 
 """ Vector multiplied by constant s"""
 def vecmul(a, s):
-    return[a[0]*s, a[1]*s, a[2]*s]
+    return(a[0]*s, a[1]*s, a[2]*s)
+
+""" Normalize vector """
+def vecnorm(v):
+    if length(v) != 0:
+        return vecmul(v,1/length(v))
+    else:
+        return (0,0,0)
 
 """ Get angle between 2 vectors"""
 def vecangle(x,y):

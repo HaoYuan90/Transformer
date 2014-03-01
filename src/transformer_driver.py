@@ -175,14 +175,15 @@ def process_object(obj,name):
 """
 Position center of object at center of bone
 """
-def position_objects_to_bones(bones,bone_prefix):
-    for bone in bones:
-        pos = (bone.head_local + bone.tail_local)/2
-        obj = bpy.data.objects[bone.name.replace(bone_prefix,'')]
-        if obj != None:
-            obj.location = pos
-        else:
-            logger.add_error_log("Cant find object at position_objects_to_bones")
+def position_objects_to_bones(armature,bone_prefix):
+    for bone in armature.data.bones:
+        if "Link" not in bone.name and "link" not in bone.name:
+            pos = (bone.head_local + bone.tail_local)/2
+            obj = bpy.data.objects[bone.name.replace(bone_prefix,'')]
+            if obj != None:
+                obj.location = pos
+            else:
+                logger.add_error_log("Cant find object at position_objects_to_bones")
 
 """
 Get euler rotation data for the bone
@@ -230,16 +231,17 @@ def get_euler_rotation(bone):
 """
 Align rotation of object with rotation of  bone
 """
-def align_objects_to_bones(bones,bone_prefix):
-    for bone in bones:
-        obj = bpy.data.objects[bone.name.replace(bone_prefix,'')]
-        if obj != None:
-            rotation = get_euler_rotation(bone)
-            obj.rotation_euler.x = rotation[0]
-            obj.rotation_euler.y = rotation[1]
-            obj.rotation_euler.z = rotation[2]
-        else:
-            logger.add_error_log("Cant find object at align_objects_to_bones")
+def align_objects_to_bones(armature,bone_prefix):
+    for bone in armature.data.bones:
+        if "Link" not in bone.name and "link" not in bone.name:
+            obj = bpy.data.objects[bone.name.replace(bone_prefix,'')]
+            if obj != None:
+                rotation = get_euler_rotation(bone)
+                obj.rotation_euler.x = rotation[0]
+                obj.rotation_euler.y = rotation[1]
+                obj.rotation_euler.z = rotation[2]
+            else:
+                logger.add_error_log("Cant find object at align_objects_to_bones")
     
 """
 Sequence: 
@@ -251,7 +253,7 @@ def process_armature(armature):
     # Initialise armature data
     for bone in armature.data.bones:
         bone["is_parent"] = len(bone.children) > 0
-        bone["has_cut"] = False
+        bone["has_grown"] = False
     
     potential_bone_list = []
     for bone in armature.data.bones:
@@ -279,11 +281,42 @@ def process_armature(armature):
     
     sequence = []
     sequence.append(starting_bone)
-    bone = starting_bone.parent
-    while bone != None:
-        if "Link" not in bone.name and "link" not in bone.name:
+    for bone in potential_bone_list:
+        if bone not in sequence:
             sequence.append(bone)
-        bone = bone.parent
+    
+    # Grow the sequence interatively
+    while True:
+        has_grown = False
+        temp = []
+        for bone in sequence:
+            if not bone["has_grown"]:
+                growth = bone.parent
+                while growth != None:
+                    if "Link" not in growth.name and "link" not in growth.name:
+                        if growth not in sequence and growth not in temp:
+                            temp.append(growth)
+                            bone["has_grown"] = True
+                            has_grown = True
+                        break
+                    growth = growth.parent
+    
+        for growth in temp:
+            sequence.append(growth)
+        if not has_grown:
+            break
+    
+    toRemove = []
+    for bone in sequence:
+        if bone not in toRemove:
+            if "pos" in bone.name or "neg" in bone.name:
+                name = bone.name[0:-4]
+                for findbone in sequence:
+                    if findbone != bone and findbone.name[0:-4] == name:
+                        toRemove.append(findbone)
+    for bone in toRemove:
+        sequence.remove(bone)
+        
     return sequence
 
 """
@@ -304,7 +337,11 @@ def cutting_main(picks = [0,0],armature_name = "Armature",object_name = "Cube",b
     for bone in sequence:
         # handle symmetric bones
         if "component_volume" in bone:
-            cut_reqs.append({"volume":bone["component_volume"],"aspect":bone["component_aspect"],"name":bone.name.replace(bone_prefix,''),"is_sym":False})
+            is_sym = "pos" in bone.name or "neg" in bone.name;
+            name = bone.name.replace(bone_prefix,'')
+            if is_sym:
+                name = name[0:-4]
+            cut_reqs.append({"volume":bone["component_volume"],"aspect":bone["component_aspect"],"name":name,"is_sym":is_sym})
         elif sequence.index(bone) != len(sequence)-1:
             logger.add_error_log("Bones with no cutting reqs must be the last bone in the tree for testing")
             return
@@ -315,12 +352,13 @@ def cutting_main(picks = [0,0],armature_name = "Armature",object_name = "Cube",b
     process_object(obj,sequence[len(sequence)-1].name.replace(bone_prefix,''))
     
     # Put objects in right places
-    position_objects_to_bones(sequence,bone_prefix)
-    align_objects_to_bones(sequence,bone_prefix)
+    position_objects_to_bones(armature,bone_prefix)
+    align_objects_to_bones(armature,bone_prefix)
         
 def cutting_start(obj,cut_reqs,picks):
     volume = 1.0
     i = 0
+    limit = len(picks)
     for cut_req in cut_reqs:
         req_volume_ratio = cut_req["volume"]/volume
         req_aspect_ratio = cut_req["aspect"]
@@ -348,6 +386,9 @@ def cutting_start(obj,cut_reqs,picks):
         i += 1
         config.next_subdivision_level()
         logger.add_matching_separation()
+        
+        if i >= limit:
+            break
         
 def cutting_debug(cut_reqs,picks,obj = bpy.context.active_object):
     logger.log_start()

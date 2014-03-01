@@ -12,18 +12,14 @@ exec(compile(open(driver_src_path).read(), "driver_src_path", 'exec'))
 
 cutting_main()
 
-cut_req = {"volume":0.2,"aspect":(3,1,1),"is_sym":True}
-cutting_debug_1p(cut_req, 0, True)
-
 """
 
 """
 picks = [0,0]
 cut_reqs = []
+cut_reqs.append({"volume":0.15,"aspect":(4,1,1),"is_sym":True})
 cut_reqs.append({"volume":0.4,"aspect":(2,2,1),"is_sym":False})
-cut_reqs.append({"volume":0.3,"aspect":(1,1,1),"is_sym":False})
 cutting_debug(cut_reqs,picks)
-
 
 """
 

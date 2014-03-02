@@ -55,7 +55,7 @@ def set_object_origin(obj):
     # Set obj_to to be current active object
     obj.select = True
     bpy.context.scene.objects.active = obj
-    bpy.ops.object.origin_set(type = 'ORIGIN_CENTER_OF_MASS')
+    bpy.ops.object.origin_set(type = 'ORIGIN_GEOMETRY')
     obj.select = False
 
 """

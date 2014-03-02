@@ -63,6 +63,9 @@ def perform_best_cut(obj):
                 best_cut = cut
                 best_pd = cut["pd"]
     
+    if best_cut == None:
+        logger.add_error_log("no best cut found, which is to say no cut found....")
+        return
     perform_specific_cut(obj,best_cut.name)
     
 def perform_picky_cut(obj,pick_range):
@@ -117,7 +120,46 @@ def perform_specific_cut(obj,input_name):
     for mesh in bpy.data.meshes:
         if mesh.name in mesh_to_remove:
             bpy.data.meshes.remove(mesh)
+            
+    # Handle the case where 2 tier 2 cuts are joint and hence boolean operation will be bugged
+    if len(pending_cuts) == 2:
+        x_max_0 = pending_cuts[0]["cut_box"]["x_max"]
+        x_max_1 = pending_cuts[1]["cut_box"]["x_max"]
+        x_min_0 = pending_cuts[0]["cut_box"]["x_min"]
+        x_min_1 = pending_cuts[1]["cut_box"]["x_min"]
+        x_max = 0
+        x_min = 0
+        is_joint = False
+        if math.fabs(x_max_0 - x_min_1) <= config.fp_tolerance:
+            is_joint = True
+            x_max = x_max_1
+            x_min = x_min_0
+        elif math.fabs(x_max_1 - x_min_0) <= config.fp_tolerance:
+            is_joint = True
+            x_max = x_max_0
+            x_min = x_min_1
+        
+        if is_joint:
+            y_max = pending_cuts[0]["cut_box"]["y_max"]
+            y_min = pending_cuts[0]["cut_box"]["y_min"]
+            z_max = pending_cuts[0]["cut_box"]["z_max"]
+            z_min = pending_cuts[0]["cut_box"]["z_min"]
+            assist = bops.create_cuboid(bops.generate_cuboid_verts(x_max,x_min,y_max,y_min,z_max,z_min),"assist")
+            div_level = config.tier_1_subdivision_level
+            i = pending_cuts[0].name.count("_")
+            if i>= 4:
+                div_level = config.tier_3_subdivision_level
+            elif i == 3:
+                div_level = config.tier_2_subdivision_level
+            else:
+                div_level = config.tier_1_subdivision_level
+            div_level = div_level * 2
+            bops.perform_boolean_difference(assist,obj,div_level)
+            
+            intermediate_cleanup()
+            return
     
+    # Handle normal case
     for cut in pending_cuts:
         x_max = cut["cut_box"]["x_max"]
         x_min = cut["cut_box"]["x_min"]
@@ -252,12 +294,11 @@ following this, cut layer by layer
 def process_armature(armature):
     # Initialise armature data
     for bone in armature.data.bones:
-        bone["is_parent"] = len(bone.children) > 0
         bone["has_grown"] = False
     
     potential_bone_list = []
     for bone in armature.data.bones:
-        if bone["is_parent"] == False:
+        if len(bone.children) == 0:
             potential_bone_list.append(bone)
 
     if len(potential_bone_list) <= 0:
@@ -267,7 +308,15 @@ def process_armature(armature):
         if "Link" in bone.name or "link" in bone.name:
             potential_bone_list.remove(bone)
             logger.add_error_log("Error, linking bone found at edge positions, check armature")
+            
+            
+    principle_bone = armature.data.bones[0]
+    for bone in armature.data.bones:
+        if "Link" not in bone.name and "link" not in bone.name and "pos" not in bone.name and "neg" not in bone.name:
+            if len(bone.children) > len(principle_bone.children):
+                principle_bone = bone
     
+    # Get the starting bone prefer symmetric over asymmetric and smaller volume
     starting_bone = potential_bone_list[0]
     is_starting_sym = "pos" in starting_bone.name or "neg" in starting_bone.name
     for bone in potential_bone_list:
@@ -278,6 +327,14 @@ def process_armature(armature):
         elif (is_sym and is_starting_sym) or (not is_sym and not is_starting_sym):
             if bone["component_volume"] < starting_bone["component_volume"]:
                 starting_bone = bone
+                
+    # Find the bone with most children as principle bone, it is the bone where further growth stops
+    # starting_bone is set as default as it has no children
+    principle_bone = starting_bone
+    for bone in armature.data.bones:
+        if "Link" not in bone.name and "link" not in bone.name and "pos" not in bone.name and "neg" not in bone.name:
+            if len(bone.children) > len(principle_bone.children):
+                principle_bone = bone
     
     sequence = []
     sequence.append(starting_bone)
@@ -294,9 +351,9 @@ def process_armature(armature):
                 growth = bone.parent
                 while growth != None:
                     if "Link" not in growth.name and "link" not in growth.name:
-                        if growth not in sequence and growth not in temp:
+                        bone["has_grown"] = True
+                        if growth not in sequence and growth not in temp and growth != principle_bone:
                             temp.append(growth)
-                            bone["has_grown"] = True
                             has_grown = True
                         break
                     growth = growth.parent
@@ -317,6 +374,8 @@ def process_armature(armature):
     for bone in toRemove:
         sequence.remove(bone)
         
+    sequence.append(principle_bone)
+    
     return sequence
 
 """

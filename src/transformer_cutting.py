@@ -547,17 +547,16 @@ def sym_tier_1_matching(obj, req_volume_ratio, req_aspects):
     for i in range(0,config.tier_1_divs-1):
         accumulated_volume_ratio += volume_ratios[i]
         y_far = y_min + (i+1)*y_interval
-        if cut_id in range(15,16):
-            # twice the required volume ratio is used here since we need to cut 2 parts
-            if accumulated_volume_ratio > 2*req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, 2*req_volume_ratio) <= config.allowed_pd_volume:
-                name = str.format("potential_cut_{}", cut_id)
-                tier_1_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
-                tier_1_cut["cut_box"] = {"x_max":x_max_box,"x_min":x_min_box\
-                                         ,"y_max":y_far,"y_min":y_min_box\
-                                         ,"z_max":z_max_box,"z_min":z_min_box}
-                bops.perform_boolean_intersection(obj,tier_1_cut,config.tier_1_subdivision_level)
-                tier_1_cut['pd'] = -1
-                sym_tier_2_matching(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
+        # twice the required volume ratio is used here since we need to cut 2 parts
+        if accumulated_volume_ratio > 2*req_volume_ratio or arith.percentage_discrepancy(accumulated_volume_ratio, 2*req_volume_ratio) <= config.allowed_pd_volume:
+            name = str.format("potential_cut_{}", cut_id)
+            tier_1_cut = bops.create_cuboid(bops.generate_cuboid_verts(x_max_box,x_min_box,y_far,y_min_box,z_max_box,z_min_box),name)
+            tier_1_cut["cut_box"] = {"x_max":x_max_box,"x_min":x_min_box\
+                                     ,"y_max":y_far,"y_min":y_min_box\
+                                     ,"z_max":z_max_box,"z_min":z_min_box}
+            bops.perform_boolean_intersection(obj,tier_1_cut,config.tier_1_subdivision_level)
+            tier_1_cut['pd'] = -1
+            sym_tier_2_matching(cut_id, tier_1_cut, req_volume_ratio/accumulated_volume_ratio, req_aspects)
         cut_id += 1
         
     tier_end_cleanup()

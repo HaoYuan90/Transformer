@@ -544,7 +544,7 @@ def sym_tier_1_matching(obj, req_volume_ratio, req_aspects):
     # Find a cut with volume just bigger than required volume
     accumulated_volume_ratio = 0
     cut_id = 1
-    for i in range(0,config.tier_1_divs-1):
+    for i in range(0,config.tier_1_divs):
         accumulated_volume_ratio += volume_ratios[i]
         y_far = y_min + (i+1)*y_interval
         # twice the required volume ratio is used here since we need to cut 2 parts

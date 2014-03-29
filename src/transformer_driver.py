@@ -317,6 +317,7 @@ def process_armature(armature):
                 principle_bone = bone
     
     # Get the starting bone prefer symmetric over asymmetric and smaller volume
+    """
     starting_bone = potential_bone_list[0]
     is_starting_sym = "pos" in starting_bone.name or "neg" in starting_bone.name
     for bone in potential_bone_list:
@@ -326,6 +327,19 @@ def process_armature(armature):
             is_starting_sym = True
         elif (is_sym and is_starting_sym) or (not is_sym and not is_starting_sym):
             if bone["component_volume"] < starting_bone["component_volume"]:
+                starting_bone = bone
+    """
+    
+    # Get the starting bone prefer asymmetric over symmetric and bigger volume
+    starting_bone = potential_bone_list[0]
+    is_starting_sym = "pos" in starting_bone.name or "neg" in starting_bone.name
+    for bone in potential_bone_list:
+        is_sym = "pos" in bone.name or "neg" in bone.name
+        if not is_sym and is_starting_sym:
+            starting_bone = bone
+            is_starting_sym = False
+        elif (is_sym and is_starting_sym) or (not is_sym and not is_starting_sym):
+            if bone["component_volume"] > starting_bone["component_volume"]:
                 starting_bone = bone
                 
     # Find the bone with most children as principle bone, it is the bone where further growth stops
@@ -428,6 +442,7 @@ def cutting_start(obj,cut_reqs,picks):
         logger.add_matching_log(str.format("Level of divisions are {},{},{}", config.tier_1_divs,config.tier_2_divs,config.tier_3_divs))
         
         cutter.cutting_start(obj, req_volume_ratio, req_aspects, req_is_sym)
+
         if picks[i] == 0:
             perform_best_cut(obj)
         elif picks[i] == 1:

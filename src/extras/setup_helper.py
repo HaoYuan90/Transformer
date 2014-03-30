@@ -4,8 +4,10 @@ import sys
 mypath = "C:\\Users\\Xiaopewpew\\Desktop\\GithubProjects\\Transformer\\src"
 sys.path.append(mypath)
 
-setup_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/setup_helper.py"
+setup_src_path = "C:/Users/Xiaopewpew/Desktop/GithubProjects/Transformer/src/extras/setup_helper.py"
 exec(compile(open(setup_src_path).read(), "setup_src_path", 'exec'))
+
+setup_armature(C.active_object)
 """
 
 """
